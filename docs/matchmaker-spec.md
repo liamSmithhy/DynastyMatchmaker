@@ -128,9 +128,19 @@ while a value-only tool would score it as a wash.
 
 For each ordered pair of teams (A, B):
 
-1. **Find the candidate outbound assets.** From A, everything surplus to A. From
-   B, everything surplus to B. Picks are candidates too, weighted by window: a
-   rebuilder's picks are not for sale, a contender's are.
+1. **Find the candidate outbound assets.** From each side: everything surplus
+   to it, plus any starter already past his positional peak. Picks are
+   candidates too, weighted by window — a rebuilder's picks are not for sale, a
+   contender's are.
+
+   Offering a past-peak starter is not the same as recommending he be moved.
+   Whether a team will actually part with him is settled in §5, where a
+   contender's lineup weight makes selling a productive starter score negative
+   and a rebuilder's does not. Applying the window twice — once as a filter here
+   and again as a weight there — was a real bug: it locked every team the
+   classifier called STUCK out of selling at all, so the oldest and worst roster
+   in a league was never offered a trade, despite shipping its thirty-year-olds
+   being the only move it has.
 
 2. **Test each candidate against the other lineup.** For an asset `x` leaving A
    for B, compute B's optimal lineup value with `x` added. The **lineup gain**

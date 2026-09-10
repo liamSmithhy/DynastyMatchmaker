@@ -269,21 +269,35 @@ def _resolve_league(
 ) -> tuple[League, int | None]:
     """Accept either a league_id or a username; report which roster is theirs.
 
-    Sleeper league ids are long numeric strings and usernames are not, so the
-    two are distinguishable without asking.
+    Sleeper league ids are long numeric strings, which makes for a good guess at
+    which kind of thing was passed -- but only a guess, so both are tried before
+    giving up. Deciding on the shape of the string alone meant any id that was
+    not all digits was looked up as a username and failed.
     """
-    if target.isdigit() and len(target) >= 12:
-        return client.load_league(target), None
+    looks_like_id = target.isdigit() and len(target) >= 12
+    attempts = ("league", "user") if looks_like_id else ("user", "league")
+    errors: list[str] = []
 
-    user = client.user(target)
-    leagues = client.leagues(target, season=season)
-    if not leagues:
-        raise SleeperError(f"{target} is in no leagues this season")
-    league = client.load_league(leagues[0]["league_id"])
-    focus = next(
-        (t.roster_id for t in league.teams if t.owner_id == user.get("user_id")), None
+    for kind in attempts:
+        try:
+            if kind == "league":
+                return client.load_league(target), None
+            user = client.user(target)
+            leagues = client.leagues(target, season=season)
+            if not leagues:
+                raise SleeperError(f"{target} is in no leagues this season")
+            league = client.load_league(leagues[0]["league_id"])
+            focus = next(
+                (t.roster_id for t in league.teams if t.owner_id == user.get("user_id")),
+                None,
+            )
+            return league, focus
+        except SleeperError as exc:
+            errors.append(str(exc))
+
+    raise SleeperError(
+        f"{target!r} is neither a Sleeper username nor a league id ({'; '.join(errors)})"
     )
-    return league, focus
 
 
 def cmd_report(args: argparse.Namespace) -> int:
@@ -314,7 +328,8 @@ def cmd_report(args: argparse.Namespace) -> int:
 
     scored = score_league(league, book)
     data = build_report_data(
-        scored, book, focus_roster=focus, source=source, limit=args.limit
+        scored, book, focus_roster=focus, source=source, limit=args.limit,
+        title=args.title,
     )
     out = write_report(data, args.out)
 
@@ -492,6 +507,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", default="matchmaker-report.html")
     p.add_argument("--roster", type=int, help="highlight this roster as yours")
     p.add_argument("--limit", type=int, default=8)
+    p.add_argument("--title", help="page name (defaults to the tool name)")
     p.set_defaults(func=cmd_report)
 
     p = sub.add_parser("snapshot", help="save a league to disk for offline replay")

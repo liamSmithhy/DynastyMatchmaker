@@ -211,18 +211,21 @@ def _solve_swap(
 def outbound_candidates(team: TeamScore, replacement: dict[str, float]) -> list[Asset]:
     """What this team can plausibly move.
 
-    Surplus players always. Plus, for a team whose window says this season does
-    not matter, the aging starters it ought to be selling -- without this a
-    rebuilding team can never trade its 30-year-old for picks, which is the
-    single most common dynasty trade there is, and the generator would only ever
-    find deals between teams that are already good.
+    Surplus players always, plus any starter already past his positional peak.
 
-    "Aging" is per position (pillar 2): a 26-year-old back is on the way down
-    and a 26-year-old quarterback has not started yet.
+    Offering past-peak starters is not the same as recommending they be moved:
+    whether a team will actually part with one is decided by ``side_accepts``,
+    where a contender's lineup weight makes selling a productive starter score
+    negative and a rebuilder's does not. Encoding that twice -- once as a filter
+    here and again as a weight there -- was a bug: it locked any team the
+    classifier called STUCK out of selling at all, so the oldest, worst roster
+    in a league would never be offered a trade even though shipping its
+    thirty-year-olds is the only move it has.
+
+    "Past peak" is per position (pillar 2): a 26-year-old back is on the way
+    down and a 26-year-old quarterback has not started yet.
     """
     starting = {id(p) for _, p in team.lineup if p is not None}
-    weights = WINDOW_WEIGHTS[team.window]
-    sells_production = weights["lineup"] < 0.35
     assets: list[Asset] = []
 
     for vp in team.roster:
@@ -232,7 +235,7 @@ def outbound_candidates(team: TeamScore, replacement: dict[str, float]) -> list[
             continue
         if id(vp) in starting:
             past_peak = vp.age is not None and vp.age >= PEAK_AGE.get(vp.position, 27.0)
-            if not (sells_production and past_peak):
+            if not past_peak:
                 continue
         assets.append(player_asset(vp))
 

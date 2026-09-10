@@ -21,6 +21,8 @@ from .scoring import LeagueScore, TeamScore
 from .values import ValueBook
 
 DATA_PLACEHOLDER = "__REPORT_DATA__"
+TITLE_PLACEHOLDER = "__REPORT_TITLE__"
+DEFAULT_TITLE = "Dynasty Trade Matchmaker"
 
 
 # --------------------------------------------------------------------------
@@ -125,6 +127,7 @@ def build_report_data(
     focus_roster: int | None = None,
     source: str = "live",
     limit: int = 8,
+    title: str | None = None,
 ) -> dict[str, Any]:
     """Everything the page needs, as plain JSON-able data."""
     settings = scored.settings
@@ -146,6 +149,7 @@ def build_report_data(
 
     return {
         "meta": {
+            "title": title or DEFAULT_TITLE,
             "source": source,
             "generated": datetime.datetime.now().strftime("%d %b %Y"),
             "focus": focus_roster,
@@ -179,7 +183,14 @@ def render(data: dict[str, Any]) -> str:
     payload = json.dumps(data, separators=(",", ":"))
     if "</script" in payload:
         payload = payload.replace("</script", "<\\/script")
-    return TEMPLATE.replace(DATA_PLACEHOLDER, payload)
+    # The title is written into the tag rather than set from script, because
+    # that is where a gallery reads a page's name from.
+    title = str(data.get("meta", {}).get("title") or DEFAULT_TITLE)
+    title = title.replace("<", "&lt;").replace(">", "&gt;").replace("&", "&amp;")
+    return (
+        TEMPLATE.replace(TITLE_PLACEHOLDER, title)
+        .replace(DATA_PLACEHOLDER, payload)
+    )
 
 
 def write_report(data: dict[str, Any], path: str | Path) -> Path:
@@ -189,8 +200,11 @@ def write_report(data: dict[str, Any], path: str | Path) -> Path:
     return out
 
 
-__all__ = ["build_report_data", "render", "write_report", "TEMPLATE"]
-TEMPLATE = r"""<title>Dynasty Trade Matchmaker</title>
+__all__ = [
+    "build_report_data", "render", "write_report", "TEMPLATE",
+    "DEFAULT_TITLE", "DATA_PLACEHOLDER", "TITLE_PLACEHOLDER",
+]
+TEMPLATE = r"""<title>__REPORT_TITLE__</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,500;0,600;1,400&display=swap">
 <style>
 :root{

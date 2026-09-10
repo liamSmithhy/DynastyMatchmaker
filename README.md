@@ -25,7 +25,7 @@ standard library.
 ```bash
 git clone <this repo>
 cd DynastyMatchmaker
-python3 -m pytest tests/ -q          # 189 tests, no network required
+python3 -m pytest tests/ -q          # 196 tests, no network required
 ```
 
 Data is fetched on first use and cached to `~/.cache/dynasty-matchmaker`
@@ -110,7 +110,8 @@ python3 -m src.cli --fixture $FX --values-dir $VD trades 1048291736450000000
 | `src/cli.py` | Thin shell over the above. |
 | `docs/matchmaker-spec.md` | The algorithm in plain English. Read before the code. |
 | `scripts/verify_stage*.py` | Stage verification, live where possible. |
-| `scripts/make_fixture.py` | Rebuilds the fixture league from live data. |
+| `scripts/make_fixture.py` | Rebuilds the sample league from live data. |
+| `scripts/build_fmb_league.py` | Builds the FMB league from the commissioner's roster sheet. |
 
 Both adapters are swappable: nothing downstream of `sleeper.py` sees a Sleeper
 payload, so an ESPN or Yahoo adapter slots in by producing the same `League`,

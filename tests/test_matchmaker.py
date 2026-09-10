@@ -20,6 +20,9 @@ from src.matchmaker import (
 )
 from src.scoring import (
     CONTENDER,
+    PEAK_AGE,
+    TeamScore,
+    optimal_lineup,
     REBUILD,
     RETOOLER,
     STUCK,
@@ -27,7 +30,7 @@ from src.scoring import (
     ValuedPlayer,
     score_league,
 )
-from src.sleeper import RosterPlayer, RosterSlot
+from src.sleeper import RosterPlayer, RosterSlot, Team
 
 RB = RosterSlot("RB", frozenset({"RB"}))
 
@@ -135,47 +138,111 @@ class TestOutboundCandidates:
     """These construct situations by mutating a team, so they take a private
     copy -- mutating the shared league silently changes every later test."""
 
-    def test_starters_are_not_for_sale_by_default(self, scratch_scored):
-        team = next(t for t in scratch_scored.teams if t.window == CONTENDER)
-        starting = {id(p) for _, p in team.lineup if p is not None}
-        keys = {a.key for a in outbound_candidates(team, scratch_scored.replacement)}
-        for vp in team.roster:
-            if id(vp) in starting:
-                assert f"p:{vp.player.sleeper_id}" not in keys
+    def test_starters_in_their_prime_are_never_for_sale(self, scratch_scored):
+        """A starter who has not peaked yet is not a trade candidate for anyone,
+        whatever window his team is in."""
+        for team in scratch_scored.teams:
+            keys = {a.key for a in outbound_candidates(team, scratch_scored.replacement)}
+            for slot, vp in team.lineup:
+                if vp is None or vp.age is None:
+                    continue
+                peak = PEAK_AGE.get(vp.position, 27.0)
+                if vp.age < peak:
+                    assert f"p:{vp.player.sleeper_id}" not in keys, vp.name
 
-    def _add(self, team, key, age):
+    def _add(self, scored, team, key, age, position="RB", value=6000.0):
+        """Add a player and re-solve the team, exactly as scoring would.
+
+        Appending to `lineup` without recomputing `starter_value` leaves the
+        team's baseline describing a roster it no longer has, which makes every
+        later lineup_gain wrong by the value of whatever was added.
+        """
         vp = ValuedPlayer(
-            player=RosterPlayer(key, key, "RB", "FA", age, "STARTER"),
-            value=6000.0,
+            player=RosterPlayer(key, key, position, "FA", age, "STARTER"),
+            value=value,
             matched_by="sleeper",
             record=None,
         )
         team.roster.append(vp)
-        team.lineup.append((RB, vp))
+        team.lineup = optimal_lineup(team.roster, scored.settings.starter_slots)
+        team.starter_value = sum(p.value for _, p in team.lineup if p is not None)
         return vp
 
-    def test_teams_that_have_given_up_on_the_season_will_sell_an_aging_starter(
-        self, scratch_scored
-    ):
-        """The most common dynasty trade there is: the rebuilding team ships its
-        30-year-old to a contender. The fixture league's own rebuilders happen to
-        be entirely young, so the situation is constructed here."""
-        team = next(t for t in scratch_scored.teams if t.window == CONTENDER)
-        self._add(team, "old", 31.0)
+    def test_a_past_peak_starter_is_offered_in_every_window(self, scratch_scored):
+        """Availability is not window-gated. Gating it here as well as in the
+        acceptance weights locked the oldest, worst roster in a league out of
+        trading at all -- the one team whose only move is to sell veterans."""
+        team = next(iter(scratch_scored.teams))
+        self._add(scratch_scored, team, "old", 31.0)
+        for window in (CONTENDER, TOP_HEAVY, RETOOLER, STUCK, REBUILD):
+            team.window = window
+            keys = {a.key for a in outbound_candidates(team, scratch_scored.replacement)}
+            assert "p:old" in keys, window
 
-        assert "p:old" not in {
-            a.key for a in outbound_candidates(team, scratch_scored.replacement)
-        }
+    def test_the_window_decides_acceptance_not_availability(self):
+        """Selling a past-peak starter for future capital: a rebuilder takes it
+        and a contender refuses, on identical numbers.
 
-        team.window = REBUILD
-        assert "p:old" in {
-            a.key for a in outbound_candidates(team, scratch_scored.replacement)
-        }
+        Built on a synthetic roster rather than a fixture team so the lineup
+        effect is controlled: the seller has capable backups, so losing the
+        starter costs little and the trade turns purely on how each window
+        prices capital and youth -- which is the thing under test.
+        """
+        slots = [RB, RB, RosterSlot("FLEX", frozenset({"RB", "WR", "TE"}))]
+        roster = [
+            self._vp("old", 31.0, 6000.0),
+            self._vp("backup1", 24.0, 5800.0),
+            self._vp("backup2", 24.0, 5600.0),
+            self._vp("backup3", 24.0, 5400.0),
+        ]
+        team = self._synthetic(roster, slots)
+        assert any(p is roster[0] for _, p in team.lineup), "seller must be starting"
+
+        gains, verdicts = {}, {}
+        for window in (CONTENDER, REBUILD):
+            team.window = window
+            side = Side(
+                team=team,
+                sends=[player_asset(roster[0])],
+                receives=[asset("2028 1st", 6000, position="PICK", is_pick=True)],
+            )
+            weights = WINDOW_WEIGHTS[window]
+            score_side(side, slots, weights)
+            gains[window] = side.gain
+            verdicts[window] = side_accepts(side, weights)
+
+        assert gains[REBUILD] > gains[CONTENDER]
+        assert verdicts[REBUILD] is True
+        assert verdicts[CONTENDER] is False
+
+    @staticmethod
+    def _vp(key, age, value, position="RB"):
+        return ValuedPlayer(
+            player=RosterPlayer(key, key, position, "FA", age, "STARTER"),
+            value=value,
+            matched_by="sleeper",
+            record=None,
+        )
+
+    @staticmethod
+    def _synthetic(roster, slots):
+        team = Team(roster_id=99, owner_id="u", manager="m", team_name="Synthetic")
+        score = TeamScore(
+            team=team,
+            starters=[],
+            lineup=optimal_lineup(roster, slots),
+            roster=roster,
+            picks=[],
+        )
+        score.starters = [p for _, p in score.lineup if p is not None]
+        score.starter_value = sum(p.value for p in score.starters)
+        score.window = CONTENDER
+        return score
 
     def test_a_young_starter_is_not_sold_even_by_a_rebuilder(self, scratch_scored):
         """Age is the trigger, not the window alone -- a rebuilder holds its kids."""
         team = next(t for t in scratch_scored.teams if t.window == CONTENDER)
-        self._add(team, "kid", 22.0)
+        self._add(scratch_scored, team, "kid", 22.0)
         team.window = REBUILD
         assert "p:kid" not in {
             a.key for a in outbound_candidates(team, scratch_scored.replacement)
@@ -186,7 +253,7 @@ class TestOutboundCandidates:
         started yet."""
         team = next(t for t in scratch_scored.teams if t.window == CONTENDER)
         team.window = REBUILD
-        back = self._add(team, "rb26", 26.0)
+        back = self._add(scratch_scored, team, "rb26", 26.0)
         back.player.__dict__["position"] = "RB"
         keys = {a.key for a in outbound_candidates(team, scratch_scored.replacement)}
         assert "p:rb26" in keys

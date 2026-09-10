@@ -91,8 +91,18 @@ class TestRender:
         external = re.findall(r'(?:src|href)="(https?://[^"]+)"', html)
         assert all(u.startswith("https://fonts.googleapis.com") for u in external), external
 
-    def test_has_a_stable_title(self, data):
+    def test_defaults_to_the_tool_name(self, data):
         assert "<title>Dynasty Trade Matchmaker</title>" in render(data)
+
+    def test_title_can_name_the_league(self, scored, league_book):
+        """A gallery reads a page's name from the tag, so each league's report
+        needs its own name written into it."""
+        d = build_report_data(scored, league_book, title="FMB League Trade Board")
+        assert "<title>FMB League Trade Board</title>" in render(d)
+
+    def test_title_is_escaped(self, scored, league_book):
+        d = build_report_data(scored, league_book, title="<script>x</script>")
+        assert "<title><script>" not in render(d)
 
     def test_both_themes_defined(self, data):
         html = render(data)
@@ -120,3 +130,43 @@ class TestWithoutFocus:
         data = build_report_data(scored, league_book, focus_roster=None)
         assert data["meta"]["focus"] is None
         assert DATA_PLACEHOLDER not in render(data)
+
+
+class TestTargetResolution:
+    """`report` and `snapshot` accept a username or a league id."""
+
+    def test_league_id_resolves(self, client, payloads):
+        from src.cli import _resolve_league
+
+        league, focus = _resolve_league(client, "1048291736450000000")
+        assert league.league_id == "1048291736450000000"
+        assert focus is None
+
+    def test_username_resolves_and_finds_their_roster(self, client):
+        from src.cli import _resolve_league
+
+        league, focus = _resolve_league(client, "liamsmithh")
+        assert focus is not None
+        assert league.team(focus).manager == "liamsmithh"
+
+    def test_a_non_numeric_league_id_still_resolves(self, payloads):
+        """Guessing from the string's shape alone sent every non-numeric id
+        down the username path, where it failed."""
+        from src.cli import _resolve_league
+        from src.sleeper import DictTransport, SleeperClient
+
+        renamed = {
+            k.replace("1048291736450000000", "abc123league"): v
+            for k, v in payloads.items()
+        }
+        league, _ = _resolve_league(
+            SleeperClient(transport=DictTransport(renamed)), "abc123league"
+        )
+        assert league is not None
+
+    def test_unknown_target_says_so(self, client):
+        from src.cli import _resolve_league
+        from src.sleeper import SleeperError
+
+        with pytest.raises(SleeperError, match="neither"):
+            _resolve_league(client, "not-a-real-thing")
