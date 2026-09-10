@@ -222,3 +222,85 @@ class TestExternalValueSheet:
         path = self._sheet(tmp_path, "team,value\nCIN,100\n")
         with pytest.raises(ValueError, match="no player column"):
             load_value_overrides(path)
+
+
+class TestTradeSourcedOverrides:
+    """Importing a board that disagrees with expert consensus (KeepTradeCut,
+    FantasyCalc). The crowd prices youth higher; which is right is not this
+    module's problem, but swapping the source has to be."""
+
+    def _write(self, tmp_path, text, name="board.csv"):
+        path = tmp_path / name
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_overrides_replace_values(self, tmp_path):
+        from src.values import load_value_overrides
+
+        path = self._write(tmp_path, "player,value\nAlpha Receiver,4321\n")
+        book = ValueBook(source_dir=VALUES_DIR, overrides=path)
+        assert book.value("Alpha Receiver") == 4321
+        assert load_value_overrides(path)
+
+    def test_unlisted_players_keep_the_base_value(self, tmp_path):
+        base = ValueBook(source_dir=VALUES_DIR).value("Bravo Back")
+        path = self._write(tmp_path, "player,value\nAlpha Receiver,4321\n")
+        assert ValueBook(source_dir=VALUES_DIR, overrides=path).value("Bravo Back") == base
+
+    def test_picks_refit_to_the_new_scale(self, tmp_path):
+        """Gotcha 1 again: repricing players without moving picks would put the
+        two back on different scales. The ECR curve is fitted after the swap."""
+        rows = ["player,value"] + [
+            f"{p.name},{p.value_1qb * 3}" for p in ValueBook(source_dir=VALUES_DIR).players
+        ]
+        path = self._write(tmp_path, "\n".join(rows) + "\n")
+        base = ValueBook(source_dir=VALUES_DIR)
+        tripled = ValueBook(source_dir=VALUES_DIR, overrides=path)
+        ratio = tripled.pick_value("2026 Pick 1.01") / base.pick_value("2026 Pick 1.01")
+        assert 2.5 < ratio < 3.5
+
+    def test_joins_on_sleeper_id_over_name(self, tmp_path):
+        player = ValueBook(source_dir=VALUES_DIR).get("Alpha Receiver")
+        path = self._write(
+            tmp_path, f"name,sleeper_id,value\nNot The Same Name,{player.sleeper_id},777\n"
+        )
+        assert ValueBook(source_dir=VALUES_DIR, overrides=path).value("Alpha Receiver") == 777
+
+    def test_ktc_ids_are_indexed_for_the_join(self, tmp_path):
+        """A KeepTradeCut export carries their ids, not Sleeper's. The loader
+        files them under a ktc: key so ValueBook can join through the
+        crosswalk's ktc_id column."""
+        from src.values import load_value_overrides
+
+        path = self._write(tmp_path, "name,ktc_id,value\nSome Player,9001,555\n")
+        keys = load_value_overrides(path)
+        assert keys["ktc:9001"] == (555, None)
+        assert keys["some player"] == (555, None)
+
+    def test_the_crosswalk_exposes_ktc_ids(self):
+        book = ValueBook(source_dir=VALUES_DIR)
+        assert isinstance(book._fp_to_ktc, dict)
+
+    def test_superflex_column_is_used_when_present(self, tmp_path):
+        path = self._write(tmp_path, "player,value_1qb,value_2qb\nAlpha Receiver,100,900\n")
+        book = ValueBook(source_dir=VALUES_DIR, overrides=path)
+        assert book.value("Alpha Receiver") == 100
+        assert book.value("Alpha Receiver", superflex=True) == 900
+
+    def test_json_from_a_trade_sourced_api(self, tmp_path):
+        path = self._write(
+            tmp_path,
+            '[{"player":{"name":"Alpha Receiver","sleeperId":"2001"},"value":6543}]',
+            name="board.json",
+        )
+        assert ValueBook(source_dir=VALUES_DIR, overrides=path).value("Alpha Receiver") == 6543
+
+    def test_a_sheet_with_no_value_column_is_rejected(self, tmp_path):
+        path = self._write(tmp_path, "player,rank\nAlpha Receiver,1\n")
+        with pytest.raises(ValueError, match="no value column"):
+            ValueBook(source_dir=VALUES_DIR, overrides=path)
+
+    def test_coverage_is_reported_not_assumed(self, tmp_path):
+        path = self._write(tmp_path, "player,value\nAlpha Receiver,4321\n")
+        book = ValueBook(source_dir=VALUES_DIR, overrides=path)
+        assert any("repriced" in note for note in book.notes)

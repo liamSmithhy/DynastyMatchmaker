@@ -205,6 +205,7 @@ _NAME_COLS = ("player", "name", "player_name", "playername", "full_name")
 _SLEEPER_COLS = ("sleeper_id", "sleeperid", "sleeper")
 _ONE_QB_COLS = ("value_1qb", "value", "ktc_value", "1qb", "value1qb", "oneqb_value")
 _SUPERFLEX_COLS = ("value_2qb", "sf_value", "superflex", "value_sf", "2qb", "sfvalue")
+_KTC_COLS = ("ktc_id", "ktcid", "ktc")
 
 
 def _pick_column(fieldnames: Sequence[str], candidates: Sequence[str]) -> str | None:
@@ -225,11 +226,14 @@ def load_value_overrides(path: str | Path) -> dict[str, tuple[float, float | Non
     two numbers differently.
     """
     text = Path(path).read_text(encoding="utf-8")
+    if text.lstrip().startswith(("[", "{")):
+        return _overrides_from_json(text)
     reader = csv.DictReader(text.splitlines())
     fields = reader.fieldnames or []
 
     name_col = _pick_column(fields, _NAME_COLS)
     sleeper_col = _pick_column(fields, _SLEEPER_COLS)
+    ktc_col = _pick_column(fields, _KTC_COLS)
     one_col = _pick_column(fields, _ONE_QB_COLS)
     sf_col = _pick_column(fields, _SUPERFLEX_COLS)
 
@@ -250,19 +254,60 @@ def load_value_overrides(path: str | Path) -> dict[str, tuple[float, float | Non
         sf = _num(row.get(sf_col)) if sf_col else None
         if one is None and sf is None:
             continue
-        # A single-column sheet sets both formats; the caller picks which to read.
-        base = one if one is not None else sf
-        keys: list[str] = []
-        if sleeper_col:
-            sid = (row.get(sleeper_col) or "").strip()
-            if sid and sid not in ("NA", "0"):
-                keys.append(f"sleeper:{sid}")
-        if name_col and not keys:
-            key = normalize_name(row.get(name_col) or "")
-            if key:
-                keys.append(key)
-        for key in keys:
-            out[key] = (float(base), sf)
+        entry = (one if one is not None else sf, sf)
+        _index(out, row.get(sleeper_col) if sleeper_col else None,
+               row.get(ktc_col) if ktc_col else None,
+               row.get(name_col) if name_col else None, entry)
+    return out
+
+
+def _index(
+    out: dict[str, tuple[float, float | None]],
+    sleeper_id: str | None,
+    ktc_id: str | None,
+    name: str | None,
+    entry: tuple[float, float | None],
+) -> None:
+    """File every key the sheet gives us, most reliable first at lookup time."""
+    sid = (sleeper_id or "").strip()
+    if sid and sid not in ("0", "NA"):
+        out[f"sleeper:{sid}"] = entry
+    kid = (ktc_id or "").strip()
+    if kid and kid not in ("0", "NA"):
+        out[f"ktc:{kid}"] = entry
+    key = normalize_name(name or "")
+    if key:
+        out.setdefault(key, entry)
+
+
+def _overrides_from_json(text: str) -> dict[str, tuple[float, float | None]]:
+    """Read the JSON a trade-sourced API returns.
+
+    FantasyCalc derives its numbers from trades that actually completed in real
+    leagues, which is the closest thing to a market price this data has. Its
+    payload nests the player, so the fields are dug out defensively rather than
+    assumed -- this path is written to a documented shape but has not been run
+    against the live endpoint from here, because that host is unreachable in
+    this environment.
+    """
+    payload = json.loads(text)
+    if isinstance(payload, dict):
+        payload = payload.get("players") or payload.get("values") or []
+    out: dict[str, tuple[float, float | None]] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        inner = item.get("player") if isinstance(item.get("player"), dict) else {}
+        value = _num(str(item.get("value", inner.get("value", ""))))
+        if value is None:
+            continue
+        _index(
+            out,
+            str(inner.get("sleeperId") or item.get("sleeperId") or ""),
+            str(inner.get("ktcId") or item.get("ktcId") or ""),
+            str(inner.get("name") or item.get("name") or ""),
+            (value, None),
+        )
     return out
 
 
@@ -429,7 +474,14 @@ class ValueBook:
         else:
             self._overrides = load_value_overrides(overrides)
 
-        self._fp_to_sleeper = self._load_crosswalk(_rows(texts[IDS_FILE]))
+        ids_rows = _rows(texts[IDS_FILE])
+        self._fp_to_sleeper = self._load_crosswalk(ids_rows)
+        self._fp_to_ktc = {
+            (r.get("fantasypros_id") or "").strip(): (r.get("ktc_id") or "").strip()
+            for r in ids_rows
+            if (r.get("fantasypros_id") or "").strip()
+            and (r.get("ktc_id") or "").strip() not in ("", "NA", "0")
+        }
         self._load_players(_rows(texts[PLAYERS_FILE]))
         self._load_picks(_rows(texts[PICKS_FILE]))
 
@@ -463,6 +515,9 @@ class ValueBook:
                 # pick curve refits to the new scale and picks stay comparable
                 # to players -- which is the whole point of gotcha 1.
                 hit = self._overrides.get(f"sleeper:{sleeper_id}") if sleeper_id else None
+                if hit is None:
+                    ktc_id = self._fp_to_ktc.get(fp_id)
+                    hit = self._overrides.get(f"ktc:{ktc_id}") if ktc_id else None
                 if hit is None:
                     hit = self._overrides.get(normalize_name(name))
                 if hit is not None:

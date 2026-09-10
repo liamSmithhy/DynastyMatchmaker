@@ -211,57 +211,58 @@ __all__ = [
 ]
 TEMPLATE = r"""<title>__REPORT_TITLE__</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
 <style>
 :root{
-  --ground:#F4F3F5; --surface:#FFFFFF; --sunken:#FAF9FB; --raised:#FFFFFF;
-  --ink:#17161B; --body:#57545E; --muted:#7C7885; --faint:#AAA6B0;
-  --line:#E5E3E8; --hair:#EFEEF1;
-  --uv:#6B10FF; --uv-soft:#F0E8FF; --uv-glow:139,44,255;
-  --neon:#6F8F00; --neon-soft:#F4FBDC; --neon-glow:198,255,26;
-  --aqua:#00A9C4;
-  --w-contender:#8E6524; --w-contender-bg:#F5F0E6;
-  --w-topheavy:#9B4A3C; --w-topheavy-bg:#F6ECEA;
-  --w-retooler:#4A6D88; --w-retooler-bg:#ECF1F5;
-  --w-stuck:#6E6A77;   --w-stuck-bg:#F1F0F3;
-  --w-rebuild:#3B7059;  --w-rebuild-bg:#EBF3EF;
-  --pos:#3B7059; --neg:#9B4A3C;
+  --ground:#F3F2F3; --surface:#FCFBFC; --sunken:#F7F6F8; --raised:#FFFFFF;
+  --ink:#1A191D; --body:#605D66; --muted:#8B8893; --faint:#B4B1B8;
+  --line:#E7E5E9; --hair:#F0EFF2;
+  /* --neon is the graphic value; --neon-ink is the one that survives on light. */
+  --uv:#5B00FF; --uv-soft:#EFE6FF; --uv-glow:124,0,255;
+  --neon:#CCFF00; --neon-ink:#5F7D00; --neon-soft:#F5FFD6; --neon-glow:204,255,0;
+  --aqua:#00C2D6;
+  --w-contender:#8A6838; --w-contender-bg:#F4F1EB;
+  --w-topheavy:#96574B; --w-topheavy-bg:#F5EEEC;
+  --w-retooler:#546E82; --w-retooler-bg:#EDF1F4;
+  --w-stuck:#75727B;   --w-stuck-bg:#F1F0F2;
+  --w-rebuild:#4A7062;  --w-rebuild-bg:#EDF3F0;
+  --pos:#4A7062; --neg:#96574B;
   --shadow-s:0 1px 2px rgba(19,17,32,.05),0 6px 18px -10px rgba(19,17,32,.16);
   --shadow-l:0 2px 6px rgba(19,17,32,.06),0 26px 60px -28px rgba(19,17,32,.30);
   --grain:.028;
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
-    --ground:#070610; --surface:#0F0E17; --sunken:#0A0912; --raised:#15131F;
-    --ink:#F4F2F8; --body:#A9A5B4; --muted:#7A7686; --faint:#544F60;
-    --line:#201E2B; --hair:#191722;
-    --uv:#B85CFF; --uv-soft:#1E1033; --uv-glow:184,92,255;
-    --neon:#DCFF33; --neon-soft:#22280A; --neon-glow:220,255,51;
-    --aqua:#28F0E0;
-    --w-contender:#C69A6A; --w-contender-bg:#231C13;
-    --w-topheavy:#CE8478; --w-topheavy-bg:#261816;
-    --w-retooler:#84A8C4; --w-retooler-bg:#141E27;
-    --w-stuck:#8B8697;   --w-stuck-bg:#1A1822;
-    --w-rebuild:#69B694;  --w-rebuild-bg:#122019;
-    --pos:#69B694; --neg:#CE8478;
+    --ground:#060510; --surface:#0E0D16; --sunken:#090810; --raised:#141220;
+    --ink:#F1EFF4; --body:#9A97A5; --muted:#6E6B7B; --faint:#4C4858;
+    --line:#1E1C28; --hair:#171520;
+    --uv:#C77DFF; --uv-soft:#1F0F3A; --uv-glow:199,125,255;
+    --neon:#E4FF3D; --neon-ink:#E4FF3D; --neon-soft:#232C08; --neon-glow:228,255,61;
+    --aqua:#3BFFEA;
+    --w-contender:#BE9468; --w-contender-bg:#201A12;
+    --w-topheavy:#C57F73; --w-topheavy-bg:#231615;
+    --w-retooler:#7C9EB8; --w-retooler-bg:#121C24;
+    --w-stuck:#827E8D;   --w-stuck-bg:#181620;
+    --w-rebuild:#63AB8B;  --w-rebuild-bg:#101E17;
+    --pos:#63AB8B; --neg:#C57F73;
     --shadow-s:0 1px 2px rgba(0,0,0,.5),0 8px 22px -12px rgba(0,0,0,.8);
     --shadow-l:0 2px 8px rgba(0,0,0,.55),0 30px 70px -30px rgba(0,0,0,.95);
     --grain:.05;
   }
 }
 :root[data-theme="dark"]{
-  --ground:#070610; --surface:#0F0E17; --sunken:#0A0912; --raised:#15131F;
-  --ink:#F4F2F8; --body:#A9A5B4; --muted:#7A7686; --faint:#544F60;
-  --line:#201E2B; --hair:#191722;
-  --uv:#B85CFF; --uv-soft:#1E1033; --uv-glow:184,92,255;
-  --neon:#DCFF33; --neon-soft:#22280A; --neon-glow:220,255,51;
-  --aqua:#28F0E0;
-  --w-contender:#C69A6A; --w-contender-bg:#231C13;
-  --w-topheavy:#CE8478; --w-topheavy-bg:#261816;
-  --w-retooler:#84A8C4; --w-retooler-bg:#141E27;
-  --w-stuck:#8B8697;   --w-stuck-bg:#1A1822;
-  --w-rebuild:#69B694;  --w-rebuild-bg:#122019;
-  --pos:#69B694; --neg:#CE8478;
+  --ground:#060510; --surface:#0E0D16; --sunken:#090810; --raised:#141220;
+  --ink:#F1EFF4; --body:#9A97A5; --muted:#6E6B7B; --faint:#4C4858;
+  --line:#1E1C28; --hair:#171520;
+  --uv:#C77DFF; --uv-soft:#1F0F3A; --uv-glow:199,125,255;
+  --neon:#E4FF3D; --neon-ink:#E4FF3D; --neon-soft:#232C08; --neon-glow:228,255,61;
+  --aqua:#3BFFEA;
+  --w-contender:#BE9468; --w-contender-bg:#201A12;
+  --w-topheavy:#C57F73; --w-topheavy-bg:#231615;
+  --w-retooler:#7C9EB8; --w-retooler-bg:#121C24;
+  --w-stuck:#827E8D;   --w-stuck-bg:#181620;
+  --w-rebuild:#63AB8B;  --w-rebuild-bg:#101E17;
+  --pos:#63AB8B; --neg:#C57F73;
   --shadow-s:0 1px 2px rgba(0,0,0,.5),0 8px 22px -12px rgba(0,0,0,.8);
   --shadow-l:0 2px 8px rgba(0,0,0,.55),0 30px 70px -30px rgba(0,0,0,.95);
   --grain:.05;
@@ -271,13 +272,13 @@ TEMPLATE = r"""<title>__REPORT_TITLE__</title>
 html{scroll-behavior:smooth}
 body{
   background:var(--ground); color:var(--body);
-  font-family:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   font-size:15.5px; line-height:1.6; margin:0;
   padding:0 22px; padding-block:0 0;
   -webkit-font-smoothing:antialiased; overflow-x:hidden;
 }
 h1,h2,h3,h4{color:var(--ink);text-wrap:balance;margin:0;font-family:"Fraunces",Georgia,serif;
-  font-weight:600;letter-spacing:-.018em;font-optical-sizing:auto;
+  font-weight:600;font-variation-settings:"SOFT" 60,"WONK" 1;letter-spacing:-.018em;font-optical-sizing:auto;
   font-variation-settings:"SOFT" 30,"WONK" 1}
 .mono,.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
 .wrap{max-width:1120px;margin:0 auto;position:relative;z-index:2}
@@ -285,7 +286,7 @@ h1,h2,h3,h4{color:var(--ink);text-wrap:balance;margin:0;font-family:"Fraunces",G
 /* ---------- ambient background ---------- */
 #bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
 .orb{position:absolute;border-radius:50%;filter:blur(76px);opacity:.72;will-change:transform}
-.orb.a{width:46vw;height:46vw;left:-12vw;top:-10vw;
+.orb.a{width:46vw;height:46vw;left:-12vw;top:-10vw;opacity:.62;
   background:radial-gradient(circle at 40% 40%,rgba(var(--uv-glow),.72),transparent 68%);
   animation:drift1 34s ease-in-out infinite}
 .orb.b{width:38vw;height:38vw;right:-10vw;top:22vh;
@@ -308,8 +309,10 @@ h1,h2,h3,h4{color:var(--ink);text-wrap:balance;margin:0;font-family:"Fraunces",G
 /* ---------- cursor ---------- */
 #cdot,#cring{position:fixed;z-index:9999;pointer-events:none;border-radius:50%;
   left:0;top:0;opacity:0;transition:opacity .3s}
-#cdot{width:6px;height:6px;background:var(--uv);margin:-3px 0 0 -3px}
-#cring{width:30px;height:30px;border:1.5px solid rgba(var(--uv-glow),.5);margin:-15px 0 0 -15px;
+#cdot{width:6px;height:6px;background:var(--neon-ink);margin:-3px 0 0 -3px;
+  box-shadow:0 0 14px var(--neon)}
+#cring{width:30px;height:30px;border:1.5px solid rgba(var(--uv-glow),.72);margin:-15px 0 0 -15px;
+  box-shadow:0 0 22px rgba(var(--uv-glow),.28),inset 0 0 12px rgba(var(--uv-glow),.16);
   transition:opacity .3s,width .22s,height .22s,margin .22s,border-color .22s}
 body.cursor-on #cdot,body.cursor-on #cring{opacity:1}
 body.cursor-on.hot #cring{width:56px;height:56px;margin:-28px 0 0 -28px;
@@ -328,6 +331,7 @@ body.cursor-on.hot #cring{width:56px;height:56px;margin:-28px 0 0 -28px;
 .load-bar{width:min(280px,60vw);height:2px;background:var(--line);margin:22px auto 0;overflow:hidden;border-radius:2px}
 .load-bar i{display:block;height:100%;width:40%;border-radius:2px;
   background:linear-gradient(90deg,transparent,var(--uv),var(--neon),transparent);
+  box-shadow:0 0 16px rgba(var(--uv-glow),.6);
   animation:sweep 1.05s cubic-bezier(.6,0,.35,1) infinite}
 @keyframes sweep{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 
@@ -340,7 +344,7 @@ body.anim .rv.in{opacity:1;transform:none;filter:none}
 /* ---------- hero ---------- */
 header{padding-block:clamp(56px,11vh,104px) 40px;position:relative}
 .eyebrow{display:inline-flex;align-items:center;gap:10px;
-  font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:.2em;
+  font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:.12em;
   text-transform:uppercase;color:var(--muted);margin:0 0 22px;
   border:1px solid var(--line);background:color-mix(in srgb,var(--surface) 70%,transparent);
   padding:7px 13px;border-radius:100px;backdrop-filter:blur(8px)}
@@ -349,7 +353,9 @@ header{padding-block:clamp(56px,11vh,104px) 40px;position:relative}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(var(--neon-glow),.7)}
   70%{box-shadow:0 0 0 12px rgba(var(--neon-glow),0)}100%{box-shadow:0 0 0 0 rgba(var(--neon-glow),0)}}
 h1{font-size:clamp(42px,8.6vw,96px);line-height:.94;font-weight:700;letter-spacing:-.035em;max-width:15ch}
-h1 .uv{background:linear-gradient(100deg,var(--uv) 5%,var(--aqua) 48%,var(--neon) 92%);
+/* Ends on --neon-ink, not --neon: pure chartreuse is invisible on a light
+   ground. In dark the two are the same colour, so nothing is lost there. */
+h1 .uv{background:linear-gradient(100deg,var(--uv) 5%,var(--aqua) 48%,var(--neon-ink) 94%);
   -webkit-background-clip:text;background-clip:text;color:transparent}
 h1 .word{display:inline-block}
 body.anim h1 .word{opacity:0;transform:translateY(.5em) rotate(2deg);
@@ -371,7 +377,7 @@ body.anim h1 .word{opacity:0;transform:translateY(.5em) rotate(2deg);
   background:linear-gradient(180deg,rgb(var(--uv-glow)),rgb(var(--neon-glow)))}
 .note b{color:var(--ink)}
 .scrollcue{display:flex;align-items:center;gap:10px;margin-top:38px;
-  font-variant-numeric:tabular-nums;font-size:10.5px;letter-spacing:.18em;
+  font-variant-numeric:tabular-nums;font-size:10.5px;letter-spacing:.11em;
   text-transform:uppercase;color:var(--faint)}
 .scrollcue i{display:block;width:30px;height:2px;border-radius:2px;
   background:linear-gradient(90deg,rgb(var(--uv-glow)),rgb(var(--neon-glow)));
@@ -387,14 +393,14 @@ body.anim h1 .word{opacity:0;transform:translateY(.5em) rotate(2deg);
   animation:run 34s linear infinite;font-variant-numeric:tabular-nums;
   font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .ticker .run span{display:inline-flex;align-items:center;gap:10px}
-.ticker .run em{font-style:normal;color:var(--uv)}
+.ticker .run em{font-style:normal;color:var(--uv);text-shadow:0 0 14px rgba(var(--uv-glow),.45)}
 @keyframes run{to{transform:translateX(-50%)}}
 
 /* ---------- sections ---------- */
 section{padding-block:clamp(58px,9vh,98px) 0;position:relative}
 .shead{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:10px}
 .shead h2{font-size:clamp(27px,4.5vw,46px);line-height:1.02;font-weight:600;letter-spacing:-.03em}
-.tag{font-variant-numeric:tabular-nums;font-size:10.5px;letter-spacing:.18em;
+.tag{font-variant-numeric:tabular-nums;font-size:10.5px;letter-spacing:.11em;
   text-transform:uppercase;color:var(--uv);padding-bottom:8px}
 .sdek{max-width:64ch;margin:0 0 30px;color:var(--muted);font-size:15px}
 .sdek b{color:var(--ink);font-weight:600}
@@ -412,7 +418,7 @@ section{padding-block:clamp(58px,9vh,98px) 0;position:relative}
 .stat .fig{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:clamp(34px,5.2vw,50px);
   color:var(--ink);letter-spacing:-.04em;line-height:1}
 .stat .lbl{font-size:13.5px;color:var(--muted);margin-top:10px;line-height:1.5}
-.stat .k{font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:.18em;
+.stat .k{font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:.11em;
   text-transform:uppercase;color:var(--uv);margin-bottom:14px;display:block}
 
 /* ---------- board ---------- */
@@ -420,7 +426,7 @@ section{padding-block:clamp(58px,9vh,98px) 0;position:relative}
   overflow:hidden;box-shadow:var(--shadow-s)}
 .scroller{overflow-x:auto}
 table{border-collapse:collapse;width:100%;min-width:900px;font-size:13.5px}
-thead th{font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:.14em;
+thead th{font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:.09em;
   text-transform:uppercase;color:var(--muted);font-weight:500;text-align:right;
   padding:15px 12px;border-bottom:1px solid var(--line);background:var(--sunken);white-space:nowrap}
 thead th.l{text-align:left}
@@ -485,7 +491,7 @@ tbody tr:hover td:first-child::before{transform:scaleY(1)}
   -webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;opacity:.85}
 .phead{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:18px 22px;
   border-bottom:1px solid var(--hair);position:relative}
-.rank{font-family:"Instrument Sans",sans-serif;font-size:12.5px;font-weight:700;color:var(--surface);
+.rank{font-family:"Plus Jakarta Sans",sans-serif;font-size:12.5px;font-weight:700;color:var(--surface);
   background:var(--ink);width:30px;height:30px;border-radius:10px;
   display:grid;place-items:center;flex:none}
 .prop.top .rank{background:linear-gradient(135deg,rgb(var(--uv-glow)),rgb(var(--neon-glow)));
@@ -505,7 +511,7 @@ tbody tr:hover td:first-child::before{transform:scaleY(1)}
 .prop:hover .swap i{transform:rotate(180deg);border-color:var(--uv)}
 .sname{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
 .sname b{color:var(--ink);font-size:15px;font-weight:600}
-.flow .hdr{font-variant-numeric:tabular-nums;font-size:9.5px;letter-spacing:.16em;
+.flow .hdr{font-variant-numeric:tabular-nums;font-size:9.5px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--faint);margin-bottom:7px}
 .gets{margin-top:16px}
 .arow{display:flex;justify-content:space-between;gap:12px;align-items:baseline;
@@ -523,7 +529,7 @@ tbody tr:hover td:first-child::before{transform:scaleY(1)}
 .d-.up b{color:var(--pos)} .d-.down b{color:var(--neg)}
 .pitch{padding:20px 22px;background:var(--sunken);border-top:1px solid var(--hair)}
 .pitchhead{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
-.pitchhead .lb{font-variant-numeric:tabular-nums;font-size:9.5px;letter-spacing:.16em;
+.pitchhead .lb{font-variant-numeric:tabular-nums;font-size:9.5px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--faint)}
 .who{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
 button{font-variant-numeric:tabular-nums;font-size:11px;border:1px solid var(--line);
@@ -534,7 +540,8 @@ button:hover{border-color:var(--uv);color:var(--uv);transform:translateY(-2px);
   box-shadow:0 8px 18px -10px rgba(var(--uv-glow),.7)}
 button:active{transform:translateY(0) scale(.97)}
 button:focus-visible{outline:2px solid var(--uv);outline-offset:3px}
-button[aria-pressed="true"]{background:var(--uv);color:#fff;border-color:var(--uv)}
+button[aria-pressed="true"]{background:var(--uv);color:#fff;border-color:var(--uv);
+  box-shadow:0 0 20px rgba(var(--uv-glow),.5)}
 blockquote{margin:0;font-size:14px;color:var(--body);white-space:pre-wrap;line-height:1.66;
   border-left:2px solid var(--uv);padding-left:16px}
 
@@ -543,7 +550,7 @@ blockquote{margin:0;font-size:14px;color:var(--body);white-space:pre-wrap;line-h
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:24px;
   transition:border-color .35s,box-shadow .35s}
 .panel:hover{border-color:var(--uv);box-shadow:var(--shadow-l)}
-.panel h3{font-variant-numeric:tabular-nums;font-size:10.5px;letter-spacing:.16em;
+.panel h3{font-variant-numeric:tabular-nums;font-size:10.5px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--uv);font-weight:600;margin-bottom:18px}
 .kv{display:flex;justify-content:space-between;gap:14px;padding:9px 0;
   border-bottom:1px solid var(--hair);font-size:14px}
