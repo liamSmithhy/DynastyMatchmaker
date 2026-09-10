@@ -86,10 +86,17 @@ class TestRender:
         assert embedded == data
 
     def test_page_is_self_contained(self, data):
-        """Only the font stylesheet may be fetched; everything else ships inline."""
+        """Only Google Fonts may be fetched; everything else ships inline.
+
+        fonts.googleapis.com serves the stylesheet and fonts.gstatic.com the
+        font files -- both are on the artifact CSP allowlist. Any other host
+        would silently fail to load once published.
+        """
+        allowed = ("https://fonts.googleapis.com", "https://fonts.gstatic.com")
         html = render(data)
         external = re.findall(r'(?:src|href)="(https?://[^"]+)"', html)
-        assert all(u.startswith("https://fonts.googleapis.com") for u in external), external
+        assert external, "expected the font links to be present"
+        assert all(u.startswith(allowed) for u in external), external
 
     def test_defaults_to_the_tool_name(self, data):
         assert "<title>Dynasty Trade Matchmaker</title>" in render(data)

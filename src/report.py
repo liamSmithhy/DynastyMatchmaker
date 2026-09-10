@@ -128,12 +128,16 @@ def build_report_data(
     source: str = "live",
     limit: int = 8,
     title: str | None = None,
+    exclude_positions: Any = (),
 ) -> dict[str, Any]:
     """Everything the page needs, as plain JSON-able data."""
     settings = scored.settings
     league = scored.league
     if proposals is None:
-        proposals = find_trades(scored, book, limit=limit, multi_team=True)
+        proposals = find_trades(
+            scored, book, limit=limit, multi_team=True,
+            exclude_positions=exclude_positions,
+        )
 
     ordered = sorted(scored.teams, key=lambda t: t.overall_rank)
 
@@ -153,6 +157,7 @@ def build_report_data(
             "source": source,
             "generated": datetime.datetime.now().strftime("%d %b %Y"),
             "focus": focus_roster,
+            "excluded": sorted({p.upper() for p in exclude_positions}),
         },
         "league": {
             "name": league.name,
@@ -205,294 +210,449 @@ __all__ = [
     "DEFAULT_TITLE", "DATA_PLACEHOLDER", "TITLE_PLACEHOLDER",
 ]
 TEMPLATE = r"""<title>__REPORT_TITLE__</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,500;0,600;1,400&display=swap">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
 :root{
-  --ground:#EEF1F5; --surface:#FFFFFF; --sunken:#F5F7FA;
-  --ink:#151A23; --body:#39414F; --muted:#68717F; --faint:#98A1B0;
-  --line:#D9DEE6; --hair:#E7EBF1;
-  --accent:#1F4E79; --accent-soft:#E4EDF5;
-  --w-contender:#9A5410; --w-contender-bg:#F7EDE1;
-  --w-topheavy:#A93221; --w-topheavy-bg:#F8E8E5;
-  --w-retooler:#2A6285; --w-retooler-bg:#E3EEF5;
-  --w-stuck:#5D6675;   --w-stuck-bg:#ECEEF2;
-  --w-rebuild:#256A4E;  --w-rebuild-bg:#E1EFE8;
-  --pos:#256A4E; --neg:#A93221;
-  --shadow:0 1px 2px rgba(21,26,35,.06),0 8px 24px -12px rgba(21,26,35,.18);
+  --ground:#F2F1F6; --surface:#FFFFFF; --sunken:#F7F6FA; --raised:#FFFFFF;
+  --ink:#131120; --body:#413E52; --muted:#6E6A83; --faint:#9C98AE;
+  --line:#E0DDE9; --hair:#EDEBF2;
+  --uv:#6231EE; --uv-soft:#EDE7FF; --uv-glow:109,59,245;
+  --neon:#8AC900; --neon-soft:#F0FADB; --neon-glow:170,235,60;
+  --aqua:#0FB3A0;
+  --w-contender:#B4560B; --w-contender-bg:#FBEEE0;
+  --w-topheavy:#C0331C; --w-topheavy-bg:#FCE9E5;
+  --w-retooler:#2F6D9E; --w-retooler-bg:#E6F0F8;
+  --w-stuck:#666080;   --w-stuck-bg:#EEEDF3;
+  --w-rebuild:#1E7C57;  --w-rebuild-bg:#E2F3EC;
+  --pos:#1E7C57; --neg:#C0331C;
+  --shadow-s:0 1px 2px rgba(19,17,32,.05),0 6px 18px -10px rgba(19,17,32,.16);
+  --shadow-l:0 2px 6px rgba(19,17,32,.06),0 26px 60px -28px rgba(19,17,32,.30);
+  --grain:.028;
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
-    --ground:#10141B; --surface:#181D26; --sunken:#141922;
-    --ink:#E9ECF3; --body:#BEC6D4; --muted:#8B95A6; --faint:#6B7484;
-    --line:#2A313D; --hair:#232935;
-    --accent:#7EB4DE; --accent-soft:#1B2C3B;
-    --w-contender:#E0A05C; --w-contender-bg:#2E2418;
-    --w-topheavy:#E58273; --w-topheavy-bg:#31201D;
-    --w-retooler:#7FB6D8; --w-retooler-bg:#1A2833;
-    --w-stuck:#9AA3B2;   --w-stuck-bg:#22262E;
-    --w-rebuild:#6BBE97;  --w-rebuild-bg:#17291F;
-    --pos:#6BBE97; --neg:#E58273;
-    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);
+    --ground:#08070E; --surface:#12111C; --sunken:#0D0C15; --raised:#181628;
+    --ink:#F2F0FA; --body:#C2BED6; --muted:#8B86A3; --faint:#645F7A;
+    --line:#252235; --hair:#1C1A29;
+    --uv:#A98BFF; --uv-soft:#1C1633; --uv-glow:150,110,255;
+    --neon:#C2F53C; --neon-soft:#1E2610; --neon-glow:194,245,60;
+    --aqua:#3BE6CE;
+    --w-contender:#F0B071; --w-contender-bg:#2A2014;
+    --w-topheavy:#F09184; --w-topheavy-bg:#2C1A17;
+    --w-retooler:#8CC4EA; --w-retooler-bg:#16222E;
+    --w-stuck:#A9A3C0;   --w-stuck-bg:#1D1B29;
+    --w-rebuild:#67D6A6;  --w-rebuild-bg:#122619;
+    --pos:#67D6A6; --neg:#F09184;
+    --shadow-s:0 1px 2px rgba(0,0,0,.5),0 8px 22px -12px rgba(0,0,0,.8);
+    --shadow-l:0 2px 8px rgba(0,0,0,.55),0 30px 70px -30px rgba(0,0,0,.95);
+    --grain:.05;
   }
 }
 :root[data-theme="dark"]{
-  --ground:#10141B; --surface:#181D26; --sunken:#141922;
-  --ink:#E9ECF3; --body:#BEC6D4; --muted:#8B95A6; --faint:#6B7484;
-  --line:#2A313D; --hair:#232935;
-  --accent:#7EB4DE; --accent-soft:#1B2C3B;
-  --w-contender:#E0A05C; --w-contender-bg:#2E2418;
-  --w-topheavy:#E58273; --w-topheavy-bg:#31201D;
-  --w-retooler:#7FB6D8; --w-retooler-bg:#1A2833;
-  --w-stuck:#9AA3B2;   --w-stuck-bg:#22262E;
-  --w-rebuild:#6BBE97;  --w-rebuild-bg:#17291F;
-  --pos:#6BBE97; --neg:#E58273;
-  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);
+  --ground:#08070E; --surface:#12111C; --sunken:#0D0C15; --raised:#181628;
+  --ink:#F2F0FA; --body:#C2BED6; --muted:#8B86A3; --faint:#645F7A;
+  --line:#252235; --hair:#1C1A29;
+  --uv:#A98BFF; --uv-soft:#1C1633; --uv-glow:150,110,255;
+  --neon:#C2F53C; --neon-soft:#1E2610; --neon-glow:194,245,60;
+  --aqua:#3BE6CE;
+  --w-contender:#F0B071; --w-contender-bg:#2A2014;
+  --w-topheavy:#F09184; --w-topheavy-bg:#2C1A17;
+  --w-retooler:#8CC4EA; --w-retooler-bg:#16222E;
+  --w-stuck:#A9A3C0;   --w-stuck-bg:#1D1B29;
+  --w-rebuild:#67D6A6;  --w-rebuild-bg:#122619;
+  --pos:#67D6A6; --neg:#F09184;
+  --shadow-s:0 1px 2px rgba(0,0,0,.5),0 8px 22px -12px rgba(0,0,0,.8);
+  --shadow-l:0 2px 8px rgba(0,0,0,.55),0 30px 70px -30px rgba(0,0,0,.95);
+  --grain:.05;
 }
+
 *{box-sizing:border-box}
+html{scroll-behavior:smooth}
 body{
   background:var(--ground); color:var(--body);
-  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
-  font-size:15px; line-height:1.6; padding:0 20px; padding-block:0 64px;
-  -webkit-font-smoothing:antialiased;
+  font-family:"Familjen Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:15.5px; line-height:1.6; margin:0;
+  padding:0 22px; padding-block:0 0;
+  -webkit-font-smoothing:antialiased; overflow-x:hidden;
 }
-.wrap{max-width:1080px;margin:0 auto}
-h1,h2,h3,h4{color:var(--ink);text-wrap:balance;margin:0}
-.mono,.num{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
+h1,h2,h3,h4{color:var(--ink);text-wrap:balance;margin:0;font-family:"Syne",system-ui,sans-serif;
+  font-weight:700;letter-spacing:-.02em}
+.mono,.num{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-variant-numeric:tabular-nums}
+.wrap{max-width:1120px;margin:0 auto;position:relative;z-index:2}
 
-header{padding-block:56px 34px;border-bottom:2px solid var(--ink)}
-.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.16em;
-  text-transform:uppercase;color:var(--muted);margin:0 0 18px}
-h1{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;
-  font-size:clamp(34px,6.2vw,56px);line-height:1.04;letter-spacing:-.015em}
-.lede{font-size:clamp(16px,2.2vw,19px);max-width:60ch;margin:18px 0 0;color:var(--body)}
-.lede em{font-family:"IBM Plex Serif",Georgia,serif;font-style:italic;color:var(--ink)}
-.detected{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:26px}
-.chip{display:inline-flex;align-items:center;gap:8px;font-family:"IBM Plex Mono",monospace;
+/* ---------- ambient background ---------- */
+#bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.orb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.5;will-change:transform}
+.orb.a{width:46vw;height:46vw;left:-12vw;top:-10vw;
+  background:radial-gradient(circle at 40% 40%,rgba(var(--uv-glow),.55),transparent 68%);
+  animation:drift1 34s ease-in-out infinite}
+.orb.b{width:38vw;height:38vw;right:-10vw;top:22vh;
+  background:radial-gradient(circle at 50% 50%,rgba(var(--neon-glow),.34),transparent 66%);
+  animation:drift2 42s ease-in-out infinite}
+.orb.c{width:34vw;height:34vw;left:28vw;bottom:-14vh;
+  background:radial-gradient(circle at 50% 50%,rgba(var(--uv-glow),.32),transparent 70%);
+  animation:drift3 50s ease-in-out infinite}
+@keyframes drift1{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(7vw,5vh,0) scale(1.12)}}
+@keyframes drift2{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(-6vw,8vh,0) scale(.9)}}
+@keyframes drift3{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(5vw,-7vh,0) scale(1.15)}}
+#spot{position:fixed;inset:0;z-index:1;pointer-events:none;
+  background:radial-gradient(520px circle at var(--mx,50%) var(--my,-20%),
+    rgba(var(--uv-glow),.12),transparent 62%);
+  transition:background .18s ease-out}
+#grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:var(--grain);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode:overlay}
+
+/* ---------- cursor ---------- */
+#cdot,#cring{position:fixed;z-index:9999;pointer-events:none;border-radius:50%;
+  left:0;top:0;opacity:0;transition:opacity .3s}
+#cdot{width:6px;height:6px;background:var(--uv);margin:-3px 0 0 -3px}
+#cring{width:30px;height:30px;border:1.5px solid rgba(var(--uv-glow),.5);margin:-15px 0 0 -15px;
+  transition:opacity .3s,width .22s,height .22s,margin .22s,border-color .22s}
+body.cursor-on #cdot,body.cursor-on #cring{opacity:1}
+body.cursor-on.hot #cring{width:56px;height:56px;margin:-28px 0 0 -28px;
+  border-color:rgba(var(--neon-glow),.75)}
+@media (pointer:coarse){#cdot,#cring{display:none}}
+
+/* ---------- loader ---------- */
+#loader{position:fixed;inset:0;z-index:10000;background:var(--ground);
+  display:grid;place-items:center;transition:opacity .55s ease,visibility .55s}
+#loader.gone{opacity:0;visibility:hidden}
+.load-in{text-align:center;padding:0 20px}
+.load-name{font-family:"Syne",sans-serif;font-weight:800;font-size:clamp(22px,4vw,34px);
+  color:var(--ink);letter-spacing:-.03em}
+.load-sub{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.22em;
+  text-transform:uppercase;color:var(--muted);margin-top:10px}
+.load-bar{width:min(280px,60vw);height:2px;background:var(--line);margin:22px auto 0;overflow:hidden;border-radius:2px}
+.load-bar i{display:block;height:100%;width:40%;border-radius:2px;
+  background:linear-gradient(90deg,transparent,var(--uv),var(--neon),transparent);
+  animation:sweep 1.05s cubic-bezier(.6,0,.35,1) infinite}
+@keyframes sweep{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
+
+/* ---------- reveals ---------- */
+.rv{opacity:1;transform:none}
+body.anim .rv{opacity:0;transform:translateY(26px);filter:blur(6px);
+  transition:opacity .78s cubic-bezier(.22,.68,.3,1),transform .78s cubic-bezier(.22,.68,.3,1),filter .78s}
+body.anim .rv.in{opacity:1;transform:none;filter:none}
+
+/* ---------- hero ---------- */
+header{padding-block:clamp(56px,11vh,104px) 40px;position:relative}
+.eyebrow{display:inline-flex;align-items:center;gap:10px;
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 22px;
+  border:1px solid var(--line);background:color-mix(in srgb,var(--surface) 70%,transparent);
+  padding:7px 13px;border-radius:100px;backdrop-filter:blur(8px)}
+.eyebrow .pulse{width:6px;height:6px;border-radius:50%;background:var(--neon);
+  box-shadow:0 0 0 0 rgba(var(--neon-glow),.8);animation:pulse 2.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(var(--neon-glow),.7)}
+  70%{box-shadow:0 0 0 12px rgba(var(--neon-glow),0)}100%{box-shadow:0 0 0 0 rgba(var(--neon-glow),0)}}
+h1{font-size:clamp(40px,8.4vw,92px);line-height:.96;font-weight:800;letter-spacing:-.04em;max-width:16ch}
+h1 .uv{background:linear-gradient(105deg,var(--uv),var(--aqua) 55%,var(--neon));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+h1 .word{display:inline-block}
+body.anim h1 .word{opacity:0;transform:translateY(.5em) rotate(2deg);
+  animation:word .74s cubic-bezier(.2,.7,.25,1) forwards;animation-delay:calc(var(--w)*46ms + .12s)}
+@keyframes word{to{opacity:1;transform:none}}
+.lede{font-size:clamp(16px,2vw,19.5px);max-width:56ch;margin:26px 0 0;color:var(--body)}
+.chips{display:flex;flex-wrap:wrap;gap:9px;margin-top:30px}
+.chip{display:inline-flex;align-items:center;gap:9px;font-family:"IBM Plex Mono",monospace;
   font-size:12px;border:1px solid var(--line);background:var(--surface);
-  padding:6px 11px;border-radius:2px;color:var(--ink)}
+  padding:8px 13px;border-radius:100px;color:var(--ink);
+  transition:transform .28s cubic-bezier(.2,.8,.3,1),border-color .28s,box-shadow .28s}
+.chip:hover{transform:translateY(-3px);border-color:var(--uv);box-shadow:0 8px 20px -10px rgba(var(--uv-glow),.6)}
+.chip .k{color:var(--muted)}
 .chip b{font-weight:600}
-.chip .k{color:var(--muted);font-weight:400}
-.notice{margin-top:22px;padding:12px 14px;border-left:3px solid var(--accent);
-  background:var(--accent-soft);font-size:13.5px;color:var(--body);border-radius:0 2px 2px 0}
-.notice b{color:var(--ink)}
-
-section{padding-block:44px 0}
-.shead{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
-.shead h2{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;
-  font-size:clamp(21px,3vw,27px);letter-spacing:-.01em}
-.shead .tag{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.12em;
+.note{margin-top:26px;padding:14px 16px;border-radius:14px;font-size:13.5px;
+  border:1px solid var(--line);background:color-mix(in srgb,var(--surface) 76%,transparent);
+  backdrop-filter:blur(10px);position:relative;overflow:hidden;max-width:74ch}
+.note::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,var(--uv),var(--neon))}
+.note b{color:var(--ink)}
+.scrollcue{display:flex;align-items:center;gap:10px;margin-top:38px;
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.18em;
   text-transform:uppercase;color:var(--faint)}
-.sdek{max-width:66ch;margin:0 0 22px;color:var(--muted);font-size:14.5px}
+.scrollcue i{display:block;width:26px;height:1px;background:var(--faint);
+  animation:cue 2.1s ease-in-out infinite;transform-origin:left}
+@keyframes cue{0%,100%{transform:scaleX(.35);opacity:.45}50%{transform:scaleX(1);opacity:1}}
 
-.claims{display:grid;grid-template-columns:repeat(3,1fr);
-  border:1px solid var(--line);background:var(--surface);border-radius:3px;overflow:hidden}
-.claim{padding:20px;border-right:1px solid var(--hair)}
-.claim:last-child{border-right:0}
-.claim .fig{font-family:"IBM Plex Mono",monospace;font-size:26px;font-weight:500;
-  color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-.claim .lbl{font-size:13px;color:var(--muted);margin-top:5px;line-height:1.45}
+/* ---------- ticker ---------- */
+.ticker{position:relative;overflow:hidden;border-block:1px solid var(--line);
+  padding-block:11px;margin-top:26px;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 9%,#000 91%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 9%,#000 91%,transparent)}
+.ticker .run{display:flex;gap:34px;white-space:nowrap;width:max-content;
+  animation:run 34s linear infinite;font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.ticker .run span{display:inline-flex;align-items:center;gap:10px}
+.ticker .run em{font-style:normal;color:var(--uv)}
+@keyframes run{to{transform:translateX(-50%)}}
 
-.scroller{overflow-x:auto;border:1px solid var(--line);border-radius:3px;background:var(--surface)}
-table{border-collapse:collapse;width:100%;min-width:840px;font-size:13.5px}
-thead th{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;
+/* ---------- sections ---------- */
+section{padding-block:clamp(58px,9vh,98px) 0;position:relative}
+.shead{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:10px}
+.shead h2{font-size:clamp(26px,4.4vw,44px);line-height:1.02;font-weight:800;letter-spacing:-.035em}
+.tag{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--uv);padding-bottom:8px}
+.sdek{max-width:64ch;margin:0 0 30px;color:var(--muted);font-size:15px}
+.sdek b{color:var(--ink);font-weight:600}
+
+/* ---------- stat row ---------- */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.stat{position:relative;padding:24px;border-radius:18px;border:1px solid var(--line);
+  background:var(--surface);overflow:hidden;
+  transition:transform .4s cubic-bezier(.2,.8,.3,1),box-shadow .4s,border-color .4s}
+.stat:hover{transform:translateY(-5px);border-color:var(--uv);box-shadow:var(--shadow-l)}
+.stat::after{content:"";position:absolute;inset:auto -30% -60% -30%;height:120px;
+  background:radial-gradient(ellipse at 50% 0,rgba(var(--uv-glow),.16),transparent 70%);
+  opacity:0;transition:opacity .4s}
+.stat:hover::after{opacity:1}
+.stat .fig{font-family:"Syne",sans-serif;font-weight:800;font-size:clamp(32px,5vw,46px);
+  color:var(--ink);letter-spacing:-.04em;line-height:1}
+.stat .lbl{font-size:13.5px;color:var(--muted);margin-top:10px;line-height:1.5}
+.stat .k{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--uv);margin-bottom:14px;display:block}
+
+/* ---------- board ---------- */
+.boardwrap{border-radius:20px;border:1px solid var(--line);background:var(--surface);
+  overflow:hidden;box-shadow:var(--shadow-s)}
+.scroller{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:900px;font-size:13.5px}
+thead th{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.14em;
   text-transform:uppercase;color:var(--muted);font-weight:500;text-align:right;
-  padding:11px 10px;border-bottom:1px solid var(--line);background:var(--sunken);white-space:nowrap}
+  padding:15px 12px;border-bottom:1px solid var(--line);background:var(--sunken);white-space:nowrap}
 thead th.l{text-align:left}
-tbody td{padding:9px 10px;border-bottom:1px solid var(--hair);text-align:right;white-space:nowrap}
+tbody td{padding:13px 12px;border-bottom:1px solid var(--hair);text-align:right;
+  white-space:nowrap;position:relative}
 tbody td.l{text-align:left}
+tbody tr{transition:background .25s}
+tbody tr:hover{background:var(--uv-soft)}
 tbody tr:last-child td{border-bottom:0}
-tbody tr.me{background:var(--accent-soft)}
-.tname{color:var(--ink);font-weight:600}
-.tmgr{color:var(--faint);font-size:11.5px;font-family:"IBM Plex Mono",monospace}
-.you{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:9.5px;
-  letter-spacing:.1em;background:var(--accent);color:var(--surface);
-  padding:2px 5px;border-radius:2px;margin-left:6px;vertical-align:1px}
+tbody tr td:first-child::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;
+  background:var(--uv);transform:scaleY(0);transition:transform .3s;transform-origin:center}
+tbody tr:hover td:first-child::before{transform:scaleY(1)}
+.tname{color:var(--ink);font-weight:600;font-size:14px}
+.tmgr{color:var(--faint);font-size:11px;font-family:"IBM Plex Mono",monospace;margin-top:1px}
+.bar{position:relative;height:4px;border-radius:3px;background:var(--hair);
+  margin-top:6px;overflow:hidden;min-width:70px}
+.bar i{position:absolute;inset:0 auto 0 0;border-radius:3px;
+  background:linear-gradient(90deg,var(--uv),var(--aqua));width:0;
+  transition:width 1.1s cubic-bezier(.2,.8,.25,1)}
 .rk{color:var(--muted)}
-.tot{color:var(--ink);font-weight:600}
-.gap{font-weight:600}
+.tot{color:var(--ink);font-weight:700}
+.gap{font-weight:700}
 .gap.p{color:var(--w-topheavy)} .gap.n{color:var(--w-retooler)} .gap.z{color:var(--faint);font-weight:400}
-.win{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:10.5px;
-  letter-spacing:.06em;padding:3px 8px;border-radius:2px;font-weight:500;white-space:nowrap}
+.win{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:10px;
+  letter-spacing:.1em;padding:5px 10px;border-radius:100px;font-weight:500;white-space:nowrap}
 .win[data-w="CONTENDER"]{color:var(--w-contender);background:var(--w-contender-bg)}
 .win[data-w="TOP-HEAVY"]{color:var(--w-topheavy);background:var(--w-topheavy-bg)}
 .win[data-w="RETOOLER"]{color:var(--w-retooler);background:var(--w-retooler-bg)}
 .win[data-w="STUCK"]{color:var(--w-stuck);background:var(--w-stuck-bg)}
 .win[data-w="REBUILD"]{color:var(--w-rebuild);background:var(--w-rebuild-bg)}
-.shape{font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+.shape{font-family:"IBM Plex Mono",monospace;font-size:11px}
 .shape .s{color:var(--pos)} .shape .d{color:var(--neg)} .shape .none{color:var(--faint)}
-.legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:14px;font-size:12.5px;color:var(--muted)}
-.legend div{display:flex;align-items:center;gap:7px}
-.dot{width:9px;height:9px;border-radius:50%;flex:none}
 
-/* rosters */
-.rosters{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
-.rcard{background:var(--surface);border:1px solid var(--line);border-radius:3px;overflow:hidden}
-.rcard.me{grid-column:1/-1;border-color:var(--accent);box-shadow:var(--shadow)}
-.rhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;
-  background:var(--sunken);border-bottom:1px solid var(--line)}
-.rhead b{color:var(--ink);font-size:14.5px}
-.rhead .rmeta{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted)}
-.rhead .rmeta b{font-size:11.5px}
-.rbody{padding:14px 16px}
-.rgroup{margin-bottom:14px}
-.rgroup:last-child{margin-bottom:0}
-.rglabel{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.12em;
-  text-transform:uppercase;color:var(--faint);margin-bottom:6px;
-  padding-bottom:4px;border-bottom:1px solid var(--hair)}
-.prow{display:grid;grid-template-columns:44px 1fr auto auto;gap:10px;align-items:baseline;
-  font-size:13px;padding:2.5px 0}
-.prow .slot{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--faint)}
-.prow .pn{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.prow .pp{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--muted)}
-.prow .pv{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted);
-  font-variant-numeric:tabular-nums;text-align:right}
-.prow.empty .pn{color:var(--faint);font-style:italic}
-.chips{display:flex;flex-wrap:wrap;gap:5px}
-.pk{font-family:"IBM Plex Mono",monospace;font-size:11px;padding:3px 7px;border-radius:2px;
-  background:var(--sunken);border:1px solid var(--hair);color:var(--body);white-space:nowrap}
-.pk.traded{border-color:var(--accent);color:var(--accent)}
-.pk i{font-style:normal;color:var(--faint)}
+/* ---------- window cards ---------- */
+.wins{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:26px}
+.wc{position:relative;padding:20px 18px;border-radius:16px;border:1px solid var(--line);
+  background:var(--surface);transform-style:preserve-3d;
+  transition:box-shadow .35s,border-color .35s}
+.wc:hover{box-shadow:var(--shadow-l);border-color:color-mix(in srgb,var(--accent-w) 55%,var(--line))}
+.wc .dot{width:9px;height:9px;border-radius:50%;background:var(--accent-w);
+  box-shadow:0 0 14px var(--accent-w)}
+.wc h4{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;
+  color:var(--accent-w);margin:12px 0 7px;font-weight:600}
+.wc p{margin:0;font-size:12.5px;color:var(--muted);line-height:1.45}
+.wc .n{position:absolute;top:16px;right:16px;font-family:"IBM Plex Mono",monospace;
+  font-size:11px;color:var(--faint)}
 
-/* proposals */
-.props{display:flex;flex-direction:column;gap:20px}
-.prop{background:var(--surface);border:1px solid var(--line);border-radius:3px;
-  box-shadow:var(--shadow);overflow:hidden}
-.prop.top{border-color:var(--accent)}
-.phead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 18px;
-  background:var(--sunken);border-bottom:1px solid var(--line)}
-.rank{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;color:var(--surface);
-  background:var(--ink);width:24px;height:24px;border-radius:2px;display:grid;place-items:center;flex:none}
-.prop.top .rank{background:var(--accent)}
-.pmeta{margin-left:auto;display:flex;gap:16px;font-family:"IBM Plex Mono",monospace;
-  font-size:11.5px;color:var(--muted)}
-.pmeta b{color:var(--ink);font-weight:600}
-.ptitle{font-weight:600;color:var(--ink);font-size:14.5px}
-.sides{display:grid;grid-template-columns:1fr 1fr}
-.side{padding:18px;border-right:1px solid var(--hair)}
-.side:last-child{border-right:0}
-.sname{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:14px}
-.sname b{color:var(--ink);font-size:14px}
-.flow{display:flex;flex-direction:column;gap:5px;margin-bottom:6px}
-.flow .hdr{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.12em;
-  text-transform:uppercase;color:var(--faint);margin-bottom:2px}
-.row{display:flex;justify-content:space-between;gap:12px;align-items:baseline;font-size:13.5px}
-.row .a{color:var(--ink)}
-.row .a.pick{color:var(--accent);font-family:"IBM Plex Mono",monospace;font-size:12.5px}
-.row .v{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--muted);flex:none}
-.gets{margin-top:12px}
-.deltas{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid var(--hair)}
-.d-{font-family:"IBM Plex Mono",monospace;font-size:11px;padding:3px 7px;border-radius:2px;
-  background:var(--sunken);color:var(--muted)}
+/* ---------- trades ---------- */
+.props{display:flex;flex-direction:column;gap:22px}
+.prop{position:relative;border-radius:22px;border:1px solid var(--line);
+  background:var(--surface);overflow:hidden;box-shadow:var(--shadow-s);
+  transform-style:preserve-3d;transition:box-shadow .45s,border-color .45s}
+.prop:hover{box-shadow:var(--shadow-l);border-color:color-mix(in srgb,var(--uv) 40%,var(--line))}
+.prop .glare{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .4s;
+  background:radial-gradient(420px circle at var(--gx,50%) var(--gy,50%),
+    rgba(var(--uv-glow),.13),transparent 60%)}
+.prop:hover .glare{opacity:1}
+.prop.top{border-color:color-mix(in srgb,var(--uv) 55%,var(--line))}
+.prop.top::before{content:"";position:absolute;inset:0;border-radius:22px;padding:1px;
+  background:linear-gradient(120deg,var(--uv),var(--aqua),var(--neon));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;opacity:.55}
+.phead{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:18px 22px;
+  border-bottom:1px solid var(--hair);position:relative}
+.rank{font-family:"Syne",sans-serif;font-size:13px;font-weight:800;color:var(--surface);
+  background:var(--ink);width:30px;height:30px;border-radius:10px;
+  display:grid;place-items:center;flex:none}
+.prop.top .rank{background:linear-gradient(135deg,var(--uv),var(--aqua))}
+.ptitle{font-weight:700;color:var(--ink);font-size:16px;font-family:"Syne",sans-serif;letter-spacing:-.02em}
+.pmeta{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.mchip{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--muted);
+  border:1px solid var(--line);padding:5px 9px;border-radius:100px}
+.mchip b{color:var(--ink)}
+.sides{display:grid;grid-template-columns:1fr auto 1fr;align-items:stretch}
+.side{padding:22px}
+.swap{display:grid;place-items:center;padding:0 6px;position:relative}
+.swap i{display:grid;place-items:center;width:38px;height:38px;border-radius:50%;
+  border:1px solid var(--line);background:var(--sunken);color:var(--uv);
+  font-family:"IBM Plex Mono",monospace;font-size:15px;font-style:normal;
+  transition:transform .5s cubic-bezier(.2,.8,.3,1),border-color .4s}
+.prop:hover .swap i{transform:rotate(180deg);border-color:var(--uv)}
+.sname{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.sname b{color:var(--ink);font-size:15px;font-weight:600}
+.flow .hdr{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--faint);margin-bottom:7px}
+.gets{margin-top:16px}
+.arow{display:flex;justify-content:space-between;gap:12px;align-items:baseline;
+  font-size:14px;padding:5px 0;border-bottom:1px dashed transparent;
+  transition:border-color .25s,padding-left .25s}
+.arow:hover{border-bottom-color:var(--hair);padding-left:5px}
+.arow .a{color:var(--ink)}
+.arow .a.pick{color:var(--uv);font-family:"IBM Plex Mono",monospace;font-size:13px}
+.arow .v{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--muted);flex:none}
+.deltas{display:flex;flex-wrap:wrap;gap:7px;margin-top:18px;padding-top:14px;border-top:1px solid var(--hair)}
+.d-{font-family:"IBM Plex Mono",monospace;font-size:11px;padding:4px 9px;border-radius:100px;
+  background:var(--sunken);color:var(--muted);border:1px solid transparent;transition:border-color .3s}
+.d-:hover{border-color:var(--line)}
 .d- b{font-weight:600}
 .d-.up b{color:var(--pos)} .d-.down b{color:var(--neg)}
-.pitch{padding:16px 18px;background:var(--sunken);border-top:1px solid var(--line)}
-.pitchhead{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
-.pitchhead span.lb{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.12em;
+.pitch{padding:20px 22px;background:var(--sunken);border-top:1px solid var(--hair)}
+.pitchhead{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.pitchhead .lb{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.16em;
   text-transform:uppercase;color:var(--faint)}
-.who{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+.who{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
 button{font-family:"IBM Plex Mono",monospace;font-size:11px;border:1px solid var(--line);
-  background:var(--surface);color:var(--body);padding:4px 10px;border-radius:2px;cursor:pointer}
-button:hover{border-color:var(--accent);color:var(--accent)}
-button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-button[aria-pressed="true"]{background:var(--accent);color:var(--surface);border-color:var(--accent)}
-blockquote{margin:0;font-size:13.5px;color:var(--body);white-space:pre-wrap;
-  border-left:2px solid var(--line);padding-left:14px;line-height:1.62}
+  background:var(--surface);color:var(--body);padding:7px 13px;border-radius:100px;
+  cursor:pointer;transition:transform .22s cubic-bezier(.2,.8,.3,1),border-color .25s,
+    color .25s,background .25s,box-shadow .25s}
+button:hover{border-color:var(--uv);color:var(--uv);transform:translateY(-2px);
+  box-shadow:0 8px 18px -10px rgba(var(--uv-glow),.7)}
+button:active{transform:translateY(0) scale(.97)}
+button:focus-visible{outline:2px solid var(--uv);outline-offset:3px}
+button[aria-pressed="true"]{background:var(--uv);color:#fff;border-color:var(--uv)}
+blockquote{margin:0;font-size:14px;color:var(--body);white-space:pre-wrap;line-height:1.66;
+  border-left:2px solid var(--uv);padding-left:16px}
 
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:3px;padding:18px}
-.panel h3{font-size:12px;font-family:"IBM Plex Mono",monospace;letter-spacing:.1em;
-  text-transform:uppercase;color:var(--muted);font-weight:500;margin-bottom:14px}
-.kv{display:flex;justify-content:space-between;gap:14px;padding:7px 0;
-  border-bottom:1px solid var(--hair);font-size:13.5px}
-.kv:last-child{border-bottom:0}
+/* ---------- method ---------- */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:24px;
+  transition:border-color .35s,box-shadow .35s}
+.panel:hover{border-color:var(--uv);box-shadow:var(--shadow-l)}
+.panel h3{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--uv);font-weight:600;margin-bottom:18px}
+.kv{display:flex;justify-content:space-between;gap:14px;padding:9px 0;
+  border-bottom:1px solid var(--hair);font-size:14px}
+.kv:last-of-type{border-bottom:0}
 .kv .k{color:var(--body)}
 .kv .v{font-family:"IBM Plex Mono",monospace;color:var(--ink);
   font-variant-numeric:tabular-nums;flex:none}
-.note{font-size:12.5px;color:var(--muted);margin-top:12px;line-height:1.55}
+.panel p{font-size:13px;color:var(--muted);margin:16px 0 0;line-height:1.55}
 
-footer{margin-top:52px;padding-top:24px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+footer{margin-top:clamp(60px,9vh,100px);padding-block:34px 60px;border-top:1px solid var(--line);
+  font-size:13.5px;color:var(--muted)}
 footer b{color:var(--ink)}
 .cmd{font-family:"IBM Plex Mono",monospace;font-size:12.5px;background:var(--sunken);
-  border:1px solid var(--hair);padding:10px 12px;border-radius:2px;color:var(--ink);
-  overflow-x:auto;white-space:pre;margin-top:12px}
+  border:1px solid var(--hair);padding:14px 16px;border-radius:14px;color:var(--ink);
+  overflow-x:auto;white-space:pre;margin-top:16px}
 
-@media (max-width:760px){
-  .claims{grid-template-columns:1fr}
-  .claim{border-right:0;border-bottom:1px solid var(--hair)}
-  .claim:last-child{border-bottom:0}
-  .sides,.rosters,.grid2{grid-template-columns:1fr}
-  .side{border-right:0;border-bottom:1px solid var(--hair)}
-  .side:last-child{border-bottom:0}
-  header{padding-block:38px 26px}
+@media (max-width:900px){
+  .stats{grid-template-columns:1fr}
 }
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:760px){
+  .sides{grid-template-columns:1fr}
+  .swap{padding:2px 0}
+  .prop:hover .swap i{transform:rotate(90deg)}
+  .grid2{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  body.anim .rv{opacity:1!important;transform:none!important;filter:none!important}
+  #cdot,#cring{display:none}
+}
 </style>
+
+<div id="bg" aria-hidden="true">
+  <div class="orb a"></div><div class="orb b"></div><div class="orb c"></div>
+</div>
+<div id="spot" aria-hidden="true"></div>
+<div id="grain" aria-hidden="true"></div>
+<div id="cring" aria-hidden="true"></div><div id="cdot" aria-hidden="true"></div>
+
+<div id="loader" aria-hidden="true">
+  <div class="load-in">
+    <div class="load-name" id="loadName">Dynasty Trade Matchmaker</div>
+    <div class="load-sub">scanning every roster</div>
+    <div class="load-bar"><i></i></div>
+  </div>
+</div>
 
 <div class="wrap">
 <header>
-  <p class="eyebrow" id="eyebrow">Dynasty fantasy football</p>
-  <h1>It doesn't grade your&nbsp;trade. It finds&nbsp;it.</h1>
-  <p class="lede">Every other tool answers <em>is this fair?</em> — a question about a trade you already imagined. This one reads every roster in the league, works out who is holding value they cannot deploy and who has a hole, and hands you the ranked list with the message to send.</p>
-  <div class="detected" id="detected"></div>
-  <div class="notice" id="notice"></div>
+  <p class="eyebrow"><span class="pulse"></span><span id="eyebrow">Live league report</span></p>
+  <h1 id="headline"></h1>
+  <p class="lede rv">Every other tool answers <em>is this fair?</em> — a question about a trade you already imagined. This one reads every roster in the league, finds the value that is sitting idle, and hands you the deals that should happen, with the message to send.</p>
+  <div class="chips rv" id="detected"></div>
+  <div class="note rv" id="notice"></div>
+  <div class="scrollcue rv"><i></i> scroll</div>
 </header>
 
+<div class="ticker rv"><div class="run" id="ticker"></div></div>
+
 <section>
-  <div class="shead"><h2>Nothing here is configured</h2><span class="tag">Detected from the league</span></div>
-  <p class="sdek">Team count, PPR level, starting slots, flex eligibility and superflex are all read off the league's own payload. The two numbers that drive every decision below are measured from the league too, not set by hand.</p>
-  <div class="claims" id="claims"></div>
+  <div class="shead rv"><h2>Nothing here is configured</h2><span class="tag">measured, not assumed</span></div>
+  <p class="sdek rv">Team count, scoring, starting slots and flex eligibility are read off the league itself. So are the two numbers every decision below rests on.</p>
+  <div class="stats" id="stats"></div>
 </section>
 
 <section>
-  <div class="shead"><h2>The board</h2><span class="tag">Deployed vs held value</span></div>
-  <p class="sdek">The diagnostic is the <b>gap</b> between where a roster's starting lineup ranks and where its total value ranks — never the raw number. Two teams can hold near-identical total value and be in opposite situations.</p>
-  <div class="scroller">
-    <table>
-      <thead><tr>
-        <th class="l">Team</th><th>Rec</th><th>Starters</th><th>Players</th><th>Picks</th>
-        <th>Total</th><th>Ovr</th><th>St</th><th>Gap</th><th class="l">Window</th><th class="l">Shape</th>
-      </tr></thead>
-      <tbody id="board"></tbody>
-    </table>
+  <div class="shead rv"><h2>The board</h2><span class="tag">deployed vs held</span></div>
+  <p class="sdek rv">The diagnostic is the <b>gap</b> between where a roster's starting lineup ranks and where its total value ranks — never the raw number. Two teams can hold near-identical value and be in opposite situations.</p>
+  <div class="boardwrap rv">
+    <div class="scroller">
+      <table>
+        <thead><tr>
+          <th class="l">Team</th><th>Starters</th><th>Players</th><th>Picks</th>
+          <th>Total</th><th>Ovr</th><th>St</th><th>Gap</th>
+          <th class="l">Window</th><th class="l">Shape</th>
+        </tr></thead>
+        <tbody id="board"></tbody>
+      </table>
+    </div>
   </div>
-  <div class="legend" id="legend"></div>
+  <div class="wins" id="wins"></div>
 </section>
 
 <section>
-  <div class="shead"><h2>Every roster</h2><span class="tag">Optimal lineup, bench, taxi, picks</span></div>
-  <p class="sdek">The lineup shown is the <b>best available</b> one, re-solved from the roster — not whichever lineup the manager happened to set. That is what makes a bench player's value legible: if he does not appear here, his market value is surplus, and surplus is what gets traded.</p>
-  <div class="rosters" id="rosters"></div>
-</section>
-
-<section>
-  <div class="shead"><h2>Trades that should happen</h2><span class="tag">Ranked, both sides willing</span></div>
-  <p class="sdek">A proposal only exists if <b>each side improves relative to its own window</b>. A contender will overpay to raise its lineup; a rebuilder will not be fleeced. That asymmetry is why these clear at all — a fairness grader would call several of them lopsided.</p>
-  <p class="sdek" style="margin-top:-12px">The order is deliberately diversified, so <b>score does not fall monotonically</b>: a slightly weaker deal that brings in new teams outranks a stronger variation on the one above it. Twelve managers share one league, and a list where the same pair takes every slot leaves the rest with nothing.</p>
+  <div class="shead rv"><h2>Trades that should happen</h2><span class="tag">both sides willing</span></div>
+  <p class="sdek rv" id="tradedek">A proposal only exists if <b>each side improves relative to its own window</b>. A contender will overpay to raise its lineup; a rebuilder will not be fleeced. That asymmetry is why these clear at all — a fairness grader would call several of them lopsided.</p>
   <div class="props" id="props"></div>
 </section>
 
 <section>
-  <div class="shead"><h2>Why it's not hardcoded</h2><span class="tag">Format sensitivity is derived</span></div>
+  <div class="shead rv"><h2>How it decides</h2><span class="tag">no model in the matching path</span></div>
   <div class="grid2">
-    <div class="panel">
+    <div class="panel rv">
       <h3>Positional demand, measured</h3>
       <div id="demand"></div>
-      <p class="note">Dedicated slots are counted directly; flex demand is measured by looking at which positions actually win flex slots across every team's optimal lineup. Under full PPR that lands on receivers. Change the scoring to non-PPR and it moves to the backs on its own, with no code change and no table of positional multipliers anywhere in the system.</p>
+      <p>Dedicated slots are counted; flex demand is measured from which positions actually win flex across every optimal lineup. Under full PPR that lands on receivers. Change the scoring and it moves on its own — there is no table of positional multipliers anywhere in the system.</p>
     </div>
-    <div class="panel">
-      <h3>Picks priced on the player scale</h3>
+    <div class="panel rv">
+      <h3>Picks on the player scale</h3>
       <div id="picks"></div>
-      <p class="note">The source file ships pick <span class="mono">ECR</span> — a rank, not a value — so picks and players arrive incomparable. A monotone ECR&rarr;value curve fitted from the player board converts them. Labels also change by horizon: exact for the next draft, tier after that, round only beyond.</p>
+      <p>The source file ships pick <span class="mono">ECR</span> — a rank, not a value — so picks and players arrive incomparable. A monotone ECR&rarr;value curve fitted from the player board converts them. Labels change by horizon too: exact for the next draft, tier after that, round only beyond.</p>
     </div>
   </div>
 </section>
 
-<footer>
+<footer class="rv">
   <p><b>Free, non-commercial use.</b> Sleeper's public API is licensed for non-commercial use only, so this ships with every feature enabled and no paid tier until they say otherwise in writing. It reads only — no password, no OAuth, no writes to any league.</p>
-  <p style="margin-top:14px">Values from <b>DynastyProcess</b> (Tan Ho, Joe Sydlowski). League data from the <b>Sleeper API</b>. Both credited wherever output is shown.</p>
-  <div class="cmd">python3 -m src.cli report &lt;your-sleeper-username&gt;   # regenerates this page for your league
-python3 -m src.cli doctor &lt;your-sleeper-username&gt;
-python3 -m src.cli trades &lt;league_id&gt; --roster N</div>
+  <p style="margin-top:14px">Values from <b>DynastyProcess</b> (Tan Ho, Joe Sydlowski). League data from the <b>Sleeper API</b>.</p>
+  <div class="cmd">python3 -m src.cli report &lt;your-sleeper-username&gt;
+python3 -m src.cli report &lt;league_id&gt; --exclude-position QB</div>
 </footer>
 </div>
 
@@ -500,47 +660,75 @@ python3 -m src.cli trades &lt;league_id&gt; --roster N</div>
 <script>
 (function(){
   var D = JSON.parse(document.getElementById('data').textContent);
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduce) document.body.classList.add('anim');
+
   var esc = function(s){ return String(s).replace(/[&<>"]/g, function(c){
     return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); };
   var n = function(v){ return Number(v).toLocaleString('en-US'); };
   var sign = function(v){ return (v>0?'+':'') + n(v); };
-  var ME = D.meta.focus;
+  var ME = D.meta.focus, L = D.league;
   var byId = {}; D.teams.forEach(function(t){ byId[t.id] = t; });
   var mine = ME != null ? byId[ME] : null;
 
-  document.getElementById('eyebrow').textContent =
-    'Dynasty fantasy football · ' + D.league.name + ' · ' + D.league.season;
+  /* ---- loader ---- */
+  document.getElementById('loadName').textContent = L.name;
+  var hideLoader = function(){ document.getElementById('loader').classList.add('gone'); };
+  if (reduce) hideLoader(); else setTimeout(hideLoader, 900);
 
-  var L = D.league;
+  /* ---- hero ---- */
+  document.getElementById('eyebrow').textContent =
+    L.name + ' · ' + L.season + ' · ' + L.fmt;
+  var words = ['It', 'finds', 'the', '<span class="uv">trade</span>.'];
+  document.getElementById('headline').innerHTML = words.map(function(w, i){
+    return '<span class="word" style="--w:' + i + '">' + w + '</span>';
+  }).join(' ');
+
   document.getElementById('detected').innerHTML = [
     ['Format', L.fmt],
-    ['Starters', L.starters.length + ' — ' + L.starters.join(' ')],
-    ['Bench / taxi / IR', L.bench + ' / ' + L.taxi + ' / ' + L.ir],
-    ['Value coverage', D.coverage.toFixed(1) + '%']
+    ['Starters', L.starters.join(' ')],
+    ['Bench / taxi', L.bench + ' / ' + L.taxi],
+    ['Coverage', D.coverage.toFixed(1) + '%']
   ].map(function(c){
-    return '<span class="chip"><span class="k">'+esc(c[0])+'</span><b>'+esc(c[1])+'</b></span>';
+    return '<span class="chip"><span class="k">' + esc(c[0]) + '</span><b>' + esc(c[1]) + '</b></span>';
   }).join('');
 
-  document.getElementById('notice').innerHTML = D.meta.source === 'sample'
-    ? '<b>Sample league.</b> Real players and real DynastyProcess values; the managers and rosters are invented. Point the same command at a real Sleeper league and this page regenerates from it — nothing below is written by hand.'
-      + (mine ? ' The team standing in for yours is <b>' + esc(mine.name) + '</b>, highlighted throughout.' : '')
-    : '<b>' + esc(L.name) + '</b>, generated ' + esc(D.meta.generated) + ' from live Sleeper and DynastyProcess data.'
-      + (mine ? ' Your team is <b>' + esc(mine.name) + '</b>, highlighted throughout.' : '');
+  var ex = (D.meta.excluded || []);
+  document.getElementById('notice').innerHTML = (D.meta.source === 'sample'
+    ? '<b>Sample league.</b> Real players and real DynastyProcess values; the managers are invented. Point the same command at a real league and this page regenerates from it.'
+    : '<b>' + esc(L.name) + '</b> · generated ' + esc(D.meta.generated) + ' from the roster sheet and live DynastyProcess values.')
+    + (mine ? ' Your team is <b>' + esc(mine.name) + '</b>.' : '')
+    + (ex.length ? ' <b>' + esc(ex.join(', ')) + '</b> is excluded from every trade at the commissioner\'s direction — this league does not pay for it.' : '');
 
+  var tick = [
+    ['teams', L.starters ? D.teams.length : 0],
+    ['format', L.fmt],
+    ['coverage', D.coverage.toFixed(1) + '%'],
+    ['proposals', D.proposals.length],
+    ['no model in the matching path', ''],
+    ['deterministic output', '']
+  ].map(function(t){
+    return '<span>' + esc(t[0]) + (t[1] !== '' ? ' <em>' + esc(t[1]) + '</em>' : '') + '</span>';
+  }).join('');
+  document.getElementById('ticker').innerHTML = tick + tick;
+
+  /* ---- stats ---- */
   var dm = D.demand, rp = D.replacement;
-  var deepest = Object.keys(dm).sort(function(a,b){ return dm[b]-dm[a]; })[0];
-  document.getElementById('claims').innerHTML = [
-    ['<span class="num">'+dm[deepest].toFixed(2)+'</span>',
-     'Starters at '+deepest+' this league demands, counting the share of flex slots '+deepest
-     +' actually wins under this scoring. Nothing declares that — it is counted.'],
-    ['<span class="num">'+n(rp.RB)+'</span>',
-     'Replacement level at running back — the first back this league cannot start. It is what separates a tradeable asset from a body, and it is computed from these rosters.'],
-    ['<span class="num">'+D.proposals.length+'</span>',
-     'Proposals where both managers come out ahead in their own terms. Generated in well under a second, with no model call anywhere in the matching path.']
-  ].map(function(c){
-    return '<div class="claim"><div class="fig">'+c[0]+'</div><div class="lbl">'+c[1]+'</div></div>';
+  var deep = Object.keys(dm).sort(function(a,b){ return dm[b]-dm[a]; })[0];
+  var statData = [
+    ['flex demand', dm[deep].toFixed(2), deep + ' starters each team must field, counting the share of flex slots ' + deep + ' actually wins under this scoring.'],
+    ['replacement', n(rp.RB), 'The first running back this league cannot start. It is the line between a tradeable asset and a body.'],
+    ['found', String(D.proposals.length), 'Deals where both managers come out ahead in their own terms. Generated in well under a second.']
+  ];
+  document.getElementById('stats').innerHTML = statData.map(function(s, i){
+    return '<div class="stat rv" style="transition-delay:' + (i*70) + 'ms">'
+      + '<span class="k">' + esc(s[0]) + '</span>'
+      + '<div class="fig" data-count="' + esc(s[1]) + '">' + esc(s[1]) + '</div>'
+      + '<div class="lbl">' + esc(s[2]) + '</div></div>';
   }).join('');
 
+  /* ---- board ---- */
+  var maxTotal = Math.max.apply(null, D.teams.map(function(t){ return t.total; }));
   var shape = function(t){
     var out = [];
     Object.keys(t.surplus).forEach(function(k){ out.push('<span class="s">'+k+' +'+n(t.surplus[k])+'</span>'); });
@@ -549,111 +737,77 @@ python3 -m src.cli trades &lt;league_id&gt; --roster N</div>
   };
   document.getElementById('board').innerHTML = D.teams.map(function(t){
     var g = t.gap>0?'p':(t.gap<0?'n':'z');
-    return '<tr'+(t.id===ME?' class="me"':'')+'>'
-      + '<td class="l"><div class="tname">'+esc(t.name)
-      + (t.id===ME?'<span class="you">YOU</span>':'')+'</div>'
-      + '<div class="tmgr">'+esc(t.manager)+'</div></td>'
-      + '<td class="num rk">'+esc(t.record)+'</td>'
-      + '<td class="num">'+n(t.starter)+'</td><td class="num">'+n(t.player)+'</td>'
-      + '<td class="num">'+n(t.picks)+'</td><td class="num tot">'+n(t.total)+'</td>'
-      + '<td class="num rk">'+t.ovr+'</td><td class="num rk">'+t.st+'</td>'
-      + '<td class="num gap '+g+'">'+(t.gap>0?'+':'')+t.gap+'</td>'
-      + '<td class="l"><span class="win" data-w="'+esc(t.window)+'">'+esc(t.window)+'</span></td>'
-      + '<td class="l shape">'+shape(t)+'</td></tr>';
+    return '<tr>'
+      + '<td class="l"><div class="tname">' + esc(t.name) + '</div>'
+      + '<div class="tmgr">' + esc(t.manager) + '</div>'
+      + '<div class="bar" data-w="' + Math.round(t.total/maxTotal*100) + '"><i></i></div></td>'
+      + '<td class="num">' + n(t.starter) + '</td><td class="num">' + n(t.player) + '</td>'
+      + '<td class="num">' + n(t.picks) + '</td><td class="num tot">' + n(t.total) + '</td>'
+      + '<td class="num rk">' + t.ovr + '</td><td class="num rk">' + t.st + '</td>'
+      + '<td class="num gap ' + g + '">' + (t.gap>0?'+':'') + t.gap + '</td>'
+      + '<td class="l"><span class="win" data-w="' + esc(t.window) + '">' + esc(t.window) + '</span></td>'
+      + '<td class="l shape">' + shape(t) + '</td></tr>';
   }).join('');
 
-  var post = {CONTENDER:'push','TOP-HEAVY':'mortgaged, no reload',RETOOLER:'consolidate',
-              STUCK:'pick a direction',REBUILD:'hold'};
-  var vars = {CONTENDER:'--w-contender','TOP-HEAVY':'--w-topheavy',RETOOLER:'--w-retooler',
-              STUCK:'--w-stuck',REBUILD:'--w-rebuild'};
-  document.getElementById('legend').innerHTML = Object.keys(post).map(function(k){
-    return '<div><span class="dot" style="background:var('+vars[k]+')"></span>'
-      + '<b class="mono" style="font-size:11.5px">'+esc(k)+'</b> — '+esc(post[k])+'</div>';
-  }).join('');
-
-  /* rosters -- the user's team first, then by overall rank */
-  var pline = function(p, slot){
-    if (!p) return '<div class="prow empty"><span class="slot">'+esc(slot||'')+'</span>'
-      + '<span class="pn">empty</span><span class="pp"></span><span class="pv">—</span></div>';
-    return '<div class="prow"><span class="slot">'+esc(slot||'')+'</span>'
-      + '<span class="pn">'+esc(p.name)+'</span>'
-      + '<span class="pp">'+esc(p.pos)+(p.age!=null?' '+p.age:'')+'</span>'
-      + '<span class="pv">'+(p.unmatched?'—':n(p.value))+'</span></div>';
+  var winMeta = {
+    CONTENDER:['push','both ranks strong','--w-contender'],
+    'TOP-HEAVY':['mortgaged','lineup outruns the assets','--w-topheavy'],
+    RETOOLER:['consolidate','assets outrun the lineup','--w-retooler'],
+    STUCK:['pick a direction','no gap either way','--w-stuck'],
+    REBUILD:['hold','both weak, capital rich','--w-rebuild']
   };
-  var groupBlock = function(label, list){
-    if (!list || !list.length) return '';
-    return '<div class="rgroup"><div class="rglabel">'+esc(label)+' · '+list.length+'</div>'
-      + list.map(function(p){ return pline(p, ''); }).join('') + '</div>';
-  };
-  var order = D.teams.slice().sort(function(a,b){
-    if (a.id===ME) return -1; if (b.id===ME) return 1; return a.ovr-b.ovr;
-  });
-  document.getElementById('rosters').innerHTML = order.map(function(t){
-    var picks = t.pickList.map(function(p){
-      return '<span class="pk'+(p.own?'':' traded')+'">'+esc(p.label)
-        + ' <i>'+n(p.value)+'</i></span>';
-    }).join('');
-    return '<article class="rcard'+(t.id===ME?' me':'')+'">'
-      + '<div class="rhead"><b>'+esc(t.name)+'</b>'
-      + (t.id===ME?'<span class="you">YOU</span>':'')
-      + '<span class="win" data-w="'+esc(t.window)+'">'+esc(t.window)+'</span>'
-      + '<span class="rmeta">'+esc(t.manager)+' · '+esc(t.record)
-      + ' · total <b>'+n(t.total)+'</b></span></div>'
-      + '<div class="rbody">'
-      + '<div class="rgroup"><div class="rglabel">Optimal lineup · '+n(t.starter)+'</div>'
-      + t.lineup.map(function(s){ return pline(s.player, s.slot); }).join('') + '</div>'
-      + groupBlock('Bench', t.bench) + groupBlock('Taxi', t.taxi) + groupBlock('IR', t.ir)
-      + '<div class="rgroup"><div class="rglabel">Picks · '+n(t.picks)+'</div>'
-      + '<div class="chips">'+picks+'</div></div>'
-      + '</div></article>';
+  var counts = {}; D.teams.forEach(function(t){ counts[t.window] = (counts[t.window]||0)+1; });
+  document.getElementById('wins').innerHTML = Object.keys(winMeta).map(function(k, i){
+    var m = winMeta[k];
+    return '<div class="wc rv tilt" style="--accent-w:var(' + m[2] + ');transition-delay:' + (i*60) + 'ms">'
+      + '<span class="n">' + (counts[k]||0) + '</span><span class="dot"></span>'
+      + '<h4>' + esc(k) + '</h4><p><b>' + esc(m[0]) + '</b> — ' + esc(m[1]) + '</p></div>';
   }).join('');
 
-  /* proposals */
-  var assetRows = function(list){
+  /* ---- proposals ---- */
+  var rows = function(list){
     return list.map(function(a){
-      return '<div class="row"><span class="a'+(a.pick?' pick':'')+'">'+esc(a.label)+'</span>'
-        + '<span class="v">'+n(a.value)+'</span></div>';
+      return '<div class="arow"><span class="a' + (a.pick?' pick':'') + '">' + esc(a.label) + '</span>'
+        + '<span class="v">' + n(a.value) + '</span></div>';
     }).join('');
   };
-  var delta = function(label, v, goodUp){
+  var delta = function(label, v){
     if (!v) return '';
-    var good = goodUp ? v>0 : v<0;
-    return '<span class="d- '+(good?'up':'down')+'">'+label+' <b>'+sign(v)+'</b></span>';
+    return '<span class="d- ' + (v>0?'up':'down') + '">' + label + ' <b>' + sign(v) + '</b></span>';
   };
   document.getElementById('props').innerHTML = D.proposals.map(function(p, i){
-    var involvesMe = p.sides.some(function(s){ return s.id===ME; });
     var start = 0;
     p.sides.forEach(function(s, k){ if (s.id===ME) start = k; });
-    var sides = p.sides.map(function(s){
-      return '<div class="side"><div class="sname"><b>'+esc(s.team)+'</b>'
-        + (s.id===ME?'<span class="you">YOU</span>':'')
-        + '<span class="win" data-w="'+esc(s.window)+'">'+esc(s.window)+'</span></div>'
-        + '<div class="flow"><div class="hdr">Sends</div>'+assetRows(s.sends)+'</div>'
-        + '<div class="flow gets"><div class="hdr">Gets</div>'+assetRows(s.gets)+'</div>'
-        + '<div class="deltas">'+delta('lineup',s.lineup,true)+delta('market',s.market,true)
-        + delta('capital',s.capital,true)+'</div></div>';
+    var sides = p.sides.map(function(s, k){
+      return (k ? '<div class="swap"><i>⇄</i></div>' : '')
+        + '<div class="side"><div class="sname"><b>' + esc(s.team) + '</b>'
+        + '<span class="win" data-w="' + esc(s.window) + '">' + esc(s.window) + '</span></div>'
+        + '<div class="flow"><div class="hdr">Sends</div>' + rows(s.sends) + '</div>'
+        + '<div class="flow gets"><div class="hdr">Gets</div>' + rows(s.gets) + '</div>'
+        + '<div class="deltas">' + delta('lineup', s.lineup) + delta('market', s.market)
+        + delta('capital', s.capital) + '</div></div>';
     }).join('');
     var who = p.sides.map(function(s, k){
-      return '<button type="button" data-p="'+i+'" data-s="'+k+'" class="whoBtn" '
-        + 'aria-pressed="'+(k===start)+'">'+esc(s.team)+'</button>';
+      return '<button type="button" class="whoBtn" data-p="' + i + '" data-s="' + k + '" '
+        + 'aria-pressed="' + (k===start) + '">' + esc(s.team) + '</button>';
     }).join('');
-    return '<article class="prop'+(i===0?' top':'')+(involvesMe?' mine':'')+'">'
-      + '<div class="phead"><span class="rank">'+(i+1)+'</span>'
-      + '<span class="ptitle">'+p.sides.map(function(s){return esc(s.team);}).join(' &harr; ')+'</span>'
-      + '<span class="pmeta"><span>score <b>'+n(p.score)+'</b></span>'
-      + '<span>mutuality <b>'+p.mutuality.toFixed(2)+'</b></span></span></div>'
-      + '<div class="sides">'+sides+'</div>'
+    return '<article class="prop rv tilt' + (i===0?' top':'') + '">'
+      + '<div class="glare"></div>'
+      + '<div class="phead"><span class="rank">' + (i+1) + '</span>'
+      + '<span class="ptitle">' + p.sides.map(function(s){return esc(s.team);}).join(' × ') + '</span>'
+      + '<span class="pmeta"><span class="mchip">score <b>' + n(p.score) + '</b></span>'
+      + '<span class="mchip">mutuality <b>' + p.mutuality.toFixed(2) + '</b></span></span></div>'
+      + '<div class="sides">' + sides + '</div>'
       + '<div class="pitch"><div class="pitchhead"><span class="lb">Message to send, from</span>'
-      + '<span class="who">'+who+'</span></div>'
-      + '<blockquote id="pitch-'+i+'">'+esc(p.pitches[start])+'</blockquote>'
-      + '<div style="margin-top:10px"><button type="button" class="copyBtn" data-p="'+i+'">Copy message</button></div>'
+      + '<span class="who">' + who + '</span></div>'
+      + '<blockquote id="pitch-' + i + '">' + esc(p.pitches[start]) + '</blockquote>'
+      + '<div style="margin-top:14px"><button type="button" class="copyBtn" data-p="' + i + '">Copy message</button></div>'
       + '</div></article>';
   }).join('');
 
   var shown = {};
-  D.proposals.forEach(function(p,i){
-    var s = 0; p.sides.forEach(function(x,k){ if (x.id===ME) s = k; });
-    shown[i] = s;
+  D.proposals.forEach(function(p, i){
+    var s = 0; p.sides.forEach(function(x, k){ if (x.id===ME) s = k; }); shown[i] = s;
   });
   document.querySelectorAll('.whoBtn').forEach(function(b){
     b.addEventListener('click', function(){
@@ -667,27 +821,111 @@ python3 -m src.cli trades &lt;league_id&gt; --roster N</div>
   });
   document.querySelectorAll('.copyBtn').forEach(function(b){
     b.addEventListener('click', function(){
-      var i = +b.dataset.p;
-      var text = D.proposals[i].pitches[shown[i]];
-      var done = function(ok){ b.textContent = ok ? 'Copied' : 'Select & copy';
-        setTimeout(function(){ b.textContent = 'Copy message'; }, 1800); };
+      var i = +b.dataset.p, text = D.proposals[i].pitches[shown[i]];
+      var done = function(ok){ b.textContent = ok ? 'Copied ✓' : 'Select & copy';
+        setTimeout(function(){ b.textContent = 'Copy message'; }, 1700); };
       try { navigator.clipboard.writeText(text).then(function(){done(true);},function(){done(false);}); }
       catch(e){ done(false); }
     });
   });
 
-  document.getElementById('demand').innerHTML = Object.keys(D.demand).map(function(k){
-    return '<div class="kv"><span class="k">'+esc(k)+' starters per team</span>'
-      + '<span class="v">'+D.demand[k].toFixed(2)+'</span></div>';
-  }).join('') + Object.keys(D.replacement).map(function(k){
-    return '<div class="kv"><span class="k">'+esc(k)+' replacement level</span>'
-      + '<span class="v">'+n(D.replacement[k])+'</span></div>';
+  /* ---- method ---- */
+  document.getElementById('demand').innerHTML =
+    Object.keys(D.demand).map(function(k){
+      return '<div class="kv"><span class="k">' + esc(k) + ' starters per team</span>'
+        + '<span class="v">' + D.demand[k].toFixed(2) + '</span></div>';
+    }).join('')
+    + Object.keys(D.replacement).map(function(k){
+      return '<div class="kv"><span class="k">' + esc(k) + ' replacement level</span>'
+        + '<span class="v">' + n(D.replacement[k]) + '</span></div>';
+    }).join('');
+  document.getElementById('picks').innerHTML = D.picks.map(function(p){
+    return '<div class="kv"><span class="k mono" style="font-size:13px">' + esc(p.label) + '</span>'
+      + '<span class="v">' + n(p.v) + '</span></div>';
   }).join('');
 
-  document.getElementById('picks').innerHTML = D.picks.map(function(p){
-    return '<div class="kv"><span class="k mono" style="font-size:13px">'+esc(p.label)+'</span>'
-      + '<span class="v">'+n(p.v)+'</span></div>';
-  }).join('');
+  if (reduce) return;
+
+  /* ---- reveal on scroll ---- */
+  var io = window.IntersectionObserver ? new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (!e.isIntersecting) return;
+      e.target.classList.add('in');
+      e.target.querySelectorAll && e.target.querySelectorAll('.bar').forEach(function(bar){
+        bar.querySelector('i').style.width = bar.dataset.w + '%';
+      });
+      io.unobserve(e.target);
+    });
+  }, {rootMargin:'0px 0px -8% 0px', threshold:.12}) : null;
+
+  if (io) {
+    document.querySelectorAll('.rv').forEach(function(el){ io.observe(el); });
+  } else {
+    document.querySelectorAll('.rv').forEach(function(el){ el.classList.add('in'); });
+    document.querySelectorAll('.bar').forEach(function(b){
+      b.querySelector('i').style.width = b.dataset.w + '%'; });
+  }
+  // Safety net: nothing stays hidden if the observer never fires.
+  setTimeout(function(){
+    document.querySelectorAll('.rv:not(.in)').forEach(function(el){ el.classList.add('in'); });
+    document.querySelectorAll('.bar').forEach(function(b){
+      var i = b.querySelector('i'); if (!i.style.width) i.style.width = b.dataset.w + '%'; });
+  }, 2600);
+
+  /* ---- cursor + spotlight ---- */
+  var dot = document.getElementById('cdot'), ring = document.getElementById('cring');
+  var mx = innerWidth/2, my = innerHeight/2, rx = mx, ry = my;
+  if (!window.matchMedia('(pointer: coarse)').matches) {
+    document.body.classList.add('cursor-on');
+    addEventListener('mousemove', function(e){
+      mx = e.clientX; my = e.clientY;
+      dot.style.transform = 'translate3d(' + mx + 'px,' + my + 'px,0)';
+      document.documentElement.style.setProperty('--mx', mx + 'px');
+      document.documentElement.style.setProperty('--my', my + 'px');
+    }, {passive:true});
+    (function loop(){
+      rx += (mx - rx) * .16; ry += (my - ry) * .16;
+      ring.style.transform = 'translate3d(' + rx + 'px,' + ry + 'px,0)';
+      requestAnimationFrame(loop);
+    })();
+    document.querySelectorAll('button,a,.chip,.prop,.stat,.wc').forEach(function(el){
+      el.addEventListener('mouseenter', function(){ document.body.classList.add('hot'); });
+      el.addEventListener('mouseleave', function(){ document.body.classList.remove('hot'); });
+    });
+  }
+
+  /* ---- 3D tilt + glare ---- */
+  document.querySelectorAll('.tilt').forEach(function(card){
+    var max = card.classList.contains('prop') ? 3.2 : 7;
+    card.addEventListener('mousemove', function(e){
+      var r = card.getBoundingClientRect();
+      var px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
+      card.style.transform = 'perspective(1000px) rotateY(' + ((px-.5)*max*2).toFixed(2)
+        + 'deg) rotateX(' + ((.5-py)*max*2).toFixed(2) + 'deg) translateZ(0)';
+      card.style.setProperty('--gx', (px*100) + '%');
+      card.style.setProperty('--gy', (py*100) + '%');
+    });
+    card.addEventListener('mouseleave', function(){ card.style.transform = ''; });
+  });
+
+  /* ---- count up ---- */
+  var counted = new WeakSet();
+  var cio = window.IntersectionObserver ? new IntersectionObserver(function(es){
+    es.forEach(function(e){
+      if (!e.isIntersecting || counted.has(e.target)) return;
+      counted.add(e.target);
+      var raw = e.target.dataset.count, num = parseFloat(raw.replace(/,/g,''));
+      if (isNaN(num)) return;
+      var dec = (raw.indexOf('.') > -1) ? (raw.length - raw.indexOf('.') - 1) : 0;
+      var t0 = performance.now(), dur = 900;
+      (function step(t){
+        var k = Math.min(1, (t - t0)/dur), eased = 1 - Math.pow(1-k, 3);
+        e.target.textContent = (num*eased).toFixed(dec).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        if (k < 1) requestAnimationFrame(step); else e.target.textContent = raw;
+      })(t0);
+    });
+  }, {threshold:.5}) : null;
+  if (cio) document.querySelectorAll('[data-count]').forEach(function(el){ cio.observe(el); });
 })();
 </script>
 """

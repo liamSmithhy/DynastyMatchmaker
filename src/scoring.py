@@ -131,6 +131,7 @@ class LeagueScore:
     coverage: float
     coverage_skill: float
     unmatched: list[RosterPlayer]
+    position_weights: dict[str, float] = field(default_factory=dict)
 
     def by_roster(self, roster_id: int) -> TeamScore | None:
         return next((t for t in self.teams if t.roster_id == roster_id), None)
@@ -144,15 +145,34 @@ class LeagueScore:
 # joining rosters to values (gotcha 6)
 # --------------------------------------------------------------------------
 
-def value_player(player: RosterPlayer, book: ValueBook, superflex: bool) -> ValuedPlayer:
-    """Join on sleeper_id, fall back to a normalized name."""
+def value_player(
+    player: RosterPlayer,
+    book: ValueBook,
+    superflex: bool,
+    weights: dict[str, float] | None = None,
+) -> ValuedPlayer:
+    """Join on sleeper_id, fall back to a normalized name.
+
+    ``weights`` scales value by position. The consensus board prices a league
+    format; it cannot price a league's *market*, and those differ. A commissioner
+    who knows nobody in their league will pay for a quarterback can say so here
+    rather than have the tool keep proposing quarterback trades nobody accepts.
+
+    It is a knob, not a rule: no position is named anywhere in this module, the
+    default is 1.0 for everything, and the same mechanism raises tight ends in a
+    TE-premium league as easily as it lowers quarterbacks in this one.
+    """
+    scale = 1.0
     record = book.get_by_sleeper(player.sleeper_id)
-    if record is not None:
-        return ValuedPlayer(player, record.value(superflex), "sleeper", record)
-    record = book.get(player.name)
-    if record is not None:
-        return ValuedPlayer(player, record.value(superflex), "name", record)
-    return ValuedPlayer(player, 0.0, "unmatched", None)
+    matched = "sleeper"
+    if record is None:
+        record = book.get(player.name)
+        matched = "name"
+    if record is None:
+        return ValuedPlayer(player, 0.0, "unmatched", None)
+    if weights:
+        scale = weights.get(record.position or player.position, 1.0)
+    return ValuedPlayer(player, record.value(superflex) * scale, matched, record)
 
 
 # --------------------------------------------------------------------------
@@ -352,14 +372,19 @@ def classify_window(
 # entry point
 # --------------------------------------------------------------------------
 
-def score_league(league: League, book: ValueBook) -> LeagueScore:
+def score_league(
+    league: League,
+    book: ValueBook,
+    position_weights: dict[str, float] | None = None,
+) -> LeagueScore:
     settings = league.settings
     superflex = settings.superflex
+    weights = {k.upper(): float(v) for k, v in (position_weights or {}).items()}
     scores: list[TeamScore] = []
     unmatched: list[RosterPlayer] = []
 
     for team in league.teams:
-        roster = [value_player(p, book, superflex) for p in team.all_players]
+        roster = [value_player(p, book, superflex, weights) for p in team.all_players]
         unmatched += [vp.player for vp in roster if vp.matched_by == "unmatched"]
 
         lineup = optimal_lineup(roster, settings.starter_slots)
@@ -417,6 +442,7 @@ def score_league(league: League, book: ValueBook) -> LeagueScore:
     return LeagueScore(
         league=league,
         teams=scores,
+        position_weights=weights,
         demand=demand,
         replacement=replacement,
         coverage=coverage,

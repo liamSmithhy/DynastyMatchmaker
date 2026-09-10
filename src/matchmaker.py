@@ -208,7 +208,11 @@ def _solve_swap(
     return total, started
 
 
-def outbound_candidates(team: TeamScore, replacement: dict[str, float]) -> list[Asset]:
+def outbound_candidates(
+    team: TeamScore,
+    replacement: dict[str, float],
+    exclude_positions: frozenset[str] = frozenset(),
+) -> list[Asset]:
     """What this team can plausibly move.
 
     Surplus players always, plus any starter already past his positional peak.
@@ -230,6 +234,8 @@ def outbound_candidates(team: TeamScore, replacement: dict[str, float]) -> list[
 
     for vp in team.roster:
         if vp.value <= 0 or vp.player.slot == "IR":
+            continue
+        if vp.position in exclude_positions:
             continue
         if vp.value <= replacement.get(vp.position, 0.0):
             continue
@@ -360,10 +366,11 @@ def pair_proposals(
     replacement: dict[str, float],
     max_per_side: int = MAX_PER_SIDE,
     beam: int = 6,
+    exclude_positions: frozenset[str] = frozenset(),
 ) -> list[Proposal]:
     """Every valid trade between two teams, cheapest packages first."""
-    a_out = outbound_candidates(a, replacement)
-    b_out = outbound_candidates(b, replacement)
+    a_out = outbound_candidates(a, replacement, exclude_positions)
+    b_out = outbound_candidates(b, replacement, exclude_positions)
     if not a_out or not b_out:
         return []
 
@@ -435,6 +442,7 @@ def ring_proposals(
     replacement: dict[str, float],
     beam: int = 6,
     width: int = 4,
+    exclude_positions: frozenset[str] = frozenset(),
 ) -> list[Proposal]:
     """Three-team cycles: A ships to B, B to C, C to A.
 
@@ -450,7 +458,7 @@ def ring_proposals(
     out: list[Proposal] = []
     best: dict[tuple[int, int], list[Asset]] = {}
     for sender in teams:
-        candidates = outbound_candidates(sender, replacement)
+        candidates = outbound_candidates(sender, replacement, exclude_positions)
         for receiver in teams:
             if sender.roster_id == receiver.roster_id:
                 continue
@@ -596,7 +604,17 @@ def find_trades(
     limit: int = 10,
     multi_team: bool = False,
     max_per_side: int = MAX_PER_SIDE,
+    exclude_positions: Iterable[str] = (),
 ) -> list[Proposal]:
+    """Rank the trades this league should make.
+
+    ``exclude_positions`` keeps a position out of every package. Some leagues
+    have a settled market view the consensus board does not share -- a 1QB
+    league where nobody will pay for a quarterback is the usual case -- and
+    proposing trades that market will never accept is worse than proposing
+    fewer.
+    """
+    excluded = frozenset(p.strip().upper() for p in exclude_positions if p.strip())
     slots = scored.settings.starter_slots
     replacement = scored.replacement
     teams = sorted(scored.teams, key=lambda t: t.roster_id)
@@ -606,11 +624,12 @@ def find_trades(
         if roster_id is not None and roster_id not in (a.roster_id, b.roster_id):
             continue
         proposals += pair_proposals(
-            a, b, slots, replacement, max_per_side=max_per_side
+            a, b, slots, replacement, max_per_side=max_per_side,
+            exclude_positions=excluded,
         )
 
     if multi_team:
-        rings = ring_proposals(teams, slots, replacement)
+        rings = ring_proposals(teams, slots, replacement, exclude_positions=excluded)
         if roster_id is not None:
             rings = [
                 p for p in rings

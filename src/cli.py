@@ -59,6 +59,30 @@ def _book(args: argparse.Namespace) -> ValueBook:
     return book
 
 
+def _weights(args: argparse.Namespace) -> dict[str, float]:
+    """Parse repeated --weight POS=FACTOR into {position: factor}."""
+    out: dict[str, float] = {}
+    for raw in getattr(args, "weight", None) or []:
+        for part in str(raw).split(","):
+            if not part.strip():
+                continue
+            pos, _, factor = part.partition("=")
+            if not _:
+                raise SystemExit(f"--weight expects POS=FACTOR, got {part!r}")
+            try:
+                out[pos.strip().upper()] = float(factor)
+            except ValueError:
+                raise SystemExit(f"--weight factor must be a number, got {factor!r}")
+    return out
+
+
+def _excluded(args: argparse.Namespace) -> list[str]:
+    out: list[str] = []
+    for raw in getattr(args, "exclude_position", None) or []:
+        out += [p.strip().upper() for p in str(raw).split(",") if p.strip()]
+    return out
+
+
 def _credit() -> None:
     print(f"\n{BAR * 74}\n{CREDIT}")
 
@@ -168,7 +192,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             return 1
         league = client.load_league(leagues[0]["league_id"])
 
-    scored = score_league(league, book)
+    scored = score_league(league, book, _weights(args))
     print_doctor(scored, verbose=args.verbose)
     return 0 if scored.coverage_skill > 0.90 else 1
 
@@ -326,10 +350,10 @@ def cmd_report(args: argparse.Namespace) -> int:
     if args.roster is not None:
         focus = args.roster
 
-    scored = score_league(league, book)
+    scored = score_league(league, book, _weights(args))
     data = build_report_data(
         scored, book, focus_roster=focus, source=source, limit=args.limit,
-        title=args.title,
+        title=args.title, exclude_positions=_excluded(args),
     )
     out = write_report(data, args.out)
 
@@ -422,7 +446,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
     print("  the managers and rosters are invented. No network, no account.")
 
     league = client.load_league(DEMO_LEAGUE_ID)
-    scored = score_league(league, book)
+    scored = score_league(league, book, _weights(args))
 
     print(f"\n  Detected format: {league.format_label}")
     print(f"  Nothing below is configured -- team count, PPR level, starting")
@@ -458,7 +482,7 @@ def cmd_trades(args: argparse.Namespace) -> int:
     client = _client(args)
     book = _book(args)
     league = client.load_league(args.league_id)
-    scored = score_league(league, book)
+    scored = score_league(league, book, _weights(args))
 
     proposals = find_trades(
         scored,
@@ -466,6 +490,7 @@ def cmd_trades(args: argparse.Namespace) -> int:
         roster_id=args.roster,
         limit=args.limit,
         multi_team=args.multi_team,
+        exclude_positions=_excluded(args),
     )
     if not proposals:
         print("no trades cleared both sides. Nobody's surplus lines up with "
@@ -491,6 +516,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fixture", help="read Sleeper payloads from a JSON file")
     parser.add_argument(
         "--values-dir", dest="values_dir", help="read values from local CSVs"
+    )
+    parser.add_argument(
+        "--weight", action="append", metavar="POS=FACTOR", default=[],
+        help="scale a position's value, e.g. --weight QB=0.3 (repeatable)",
+    )
+    parser.add_argument(
+        "--exclude-position", action="append", dest="exclude_position", default=[],
+        metavar="POS", help="keep a position out of every trade (repeatable)",
     )
     parser.add_argument("--offline", action="store_true", help="use cached data only")
     parser.add_argument("--season", type=int, help="season for league lookup")

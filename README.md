@@ -51,10 +51,19 @@ python3 -m src.cli report <your-sleeper-username>     # -> matchmaker-report.htm
 python3 -m src.cli report --sample                    # the same page, sample league
 ```
 
-One self-contained HTML file: the detected format, the board, **every roster in
-the league** with its optimal lineup, bench, taxi, IR and picks, and the ranked
-proposals with a copyable message from either side. Your own team is detected
-from the username and highlighted throughout.
+One self-contained HTML file: the detected format, the board, and the ranked
+proposals with a copyable message from either side.
+
+Two knobs exist for leagues whose market differs from the consensus board:
+
+```bash
+--exclude-position QB      # keep a position out of every trade
+--weight QB=0.3            # scale a position's value (repeatable, any position)
+```
+
+A 1QB league where nobody will pay for a quarterback is the common case; the
+same mechanism raises tight ends in a TE-premium league. Neither names a
+position in the code — both are supplied per league.
 
 There is no separate demo codepath — the demo *is* this renderer pointed at the
 sample data, so a real league produces exactly the page the demo shows.
@@ -81,6 +90,7 @@ python3 -m src.cli trades   <league_id>         # ranked proposals
 python3 -m src.cli trades   <league_id> --roster 4 --limit 5
 python3 -m src.cli trades   <league_id> --multi-team    # include 3-team rings
 python3 -m src.cli history  <league_id>         # completed trades, all seasons
+python3 -m src.cli trades   <league_id> --exclude-position QB
 python3 -m src.cli report   <username>          # shareable HTML page
 python3 -m src.cli snapshot <username>          # save a league for offline replay
 ```
