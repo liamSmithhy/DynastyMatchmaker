@@ -131,6 +131,13 @@ See `LICENSING.md` for what to ask them for.
 `python3 -m src.cli demo` runs the whole pipeline on a bundled sample league
 with no account and no network. Use it to show what the tool does.
 
+`python3 -m src.cli report <username>` writes a self-contained HTML page: the
+board, every roster with its optimal lineup / bench / taxi / IR / picks, and the
+ranked proposals with a copyable message from either side. The demo is the same
+renderer pointed at sample data, so there is no demo codepath to drift from what
+a real league produces. `src/report.py` owns it; `snapshot` captures a league to
+disk for offline replay.
+
 Stage 1 was verified against live DynastyProcess data. Stages 2-4 were verified
 against a fixture built to the documented Sleeper schemas, because the build
 sandbox blocked every Sleeper host at its egress proxy; `scripts/verify_stage2.py`

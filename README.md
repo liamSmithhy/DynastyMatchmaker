@@ -25,7 +25,7 @@ standard library.
 ```bash
 git clone <this repo>
 cd DynastyMatchmaker
-python3 -m pytest tests/ -q          # 170 tests, no network required
+python3 -m pytest tests/ -q          # 189 tests, no network required
 ```
 
 Data is fetched on first use and cached to `~/.cache/dynasty-matchmaker`
@@ -44,6 +44,30 @@ That runs the whole pipeline on a sample league bundled with the repo — real
 players and real DynastyProcess values, invented managers — and prints the
 scored board, every team's window, and the ranked proposals with pitch text.
 
+## The shareable page
+
+```bash
+python3 -m src.cli report <your-sleeper-username>     # -> matchmaker-report.html
+python3 -m src.cli report --sample                    # the same page, sample league
+```
+
+One self-contained HTML file: the detected format, the board, **every roster in
+the league** with its optimal lineup, bench, taxi, IR and picks, and the ranked
+proposals with a copyable message from either side. Your own team is detected
+from the username and highlighted throughout.
+
+There is no separate demo codepath — the demo *is* this renderer pointed at the
+sample data, so a real league produces exactly the page the demo shows.
+
+To capture a league for offline replay, or to hand it to someone who cannot
+reach the API:
+
+```bash
+python3 -m src.cli snapshot <your-sleeper-username> --out myleague
+python3 -m src.cli --fixture myleague/payloads.json --values-dir myleague/values \
+        report --roster N --out mine.html
+```
+
 ## Commands
 
 ```bash
@@ -57,6 +81,8 @@ python3 -m src.cli trades   <league_id>         # ranked proposals
 python3 -m src.cli trades   <league_id> --roster 4 --limit 5
 python3 -m src.cli trades   <league_id> --multi-team    # include 3-team rings
 python3 -m src.cli history  <league_id>         # completed trades, all seasons
+python3 -m src.cli report   <username>          # shareable HTML page
+python3 -m src.cli snapshot <username>          # save a league for offline replay
 ```
 
 Global flags: `--offline` (cached data only), `--season YEAR`,
@@ -80,6 +106,7 @@ python3 -m src.cli --fixture $FX --values-dir $VD trades 1048291736450000000
 | `src/sleeper.py` | Sleeper adapter. The only file that sees Sleeper JSON. |
 | `src/scoring.py` | Roster scoring, windows, positional shape. |
 | `src/matchmaker.py` | Trade generation, validation, ranking, pitch text. |
+| `src/report.py` | The shareable HTML page. Renders any league, sample or real. |
 | `src/cli.py` | Thin shell over the above. |
 | `docs/matchmaker-spec.md` | The algorithm in plain English. Read before the code. |
 | `scripts/verify_stage*.py` | Stage verification, live where possible. |

@@ -4,6 +4,8 @@
     leagues  <username>    every league the user is in this season
     load     <league_id>   the normalized league: format, rosters, picks
     doctor   <username>    scores every team and reports value coverage
+    report   <username>    shareable HTML page for the whole league
+    snapshot <username>    save a league to disk for offline replay
     trades   <league_id>   ranked trade proposals (the actual product)
     history  <league_id>   completed trades across the league's history
 
@@ -262,6 +264,125 @@ def cmd_history(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_league(
+    client: SleeperClient, target: str, season: int | None = None
+) -> tuple[League, int | None]:
+    """Accept either a league_id or a username; report which roster is theirs.
+
+    Sleeper league ids are long numeric strings and usernames are not, so the
+    two are distinguishable without asking.
+    """
+    if target.isdigit() and len(target) >= 12:
+        return client.load_league(target), None
+
+    user = client.user(target)
+    leagues = client.leagues(target, season=season)
+    if not leagues:
+        raise SleeperError(f"{target} is in no leagues this season")
+    league = client.load_league(leagues[0]["league_id"])
+    focus = next(
+        (t.roster_id for t in league.teams if t.owner_id == user.get("user_id")), None
+    )
+    return league, focus
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    """Write the shareable HTML page for a league.
+
+    This is the same renderer the demo uses, so a real league produces exactly
+    the page the demo shows -- there is no separate demo codepath to drift.
+    """
+    from .report import build_report_data, write_report
+
+    if args.sample:
+        payloads = json.loads(DEMO_PAYLOADS.read_text(encoding="utf-8"))
+        client = SleeperClient(transport=DictTransport(payloads))
+        book = ValueBook(source_dir=DEMO_VALUES)
+        league = client.load_league(DEMO_LEAGUE_ID)
+        focus, source = None, "sample"
+    else:
+        if not args.target:
+            print("give a sleeper username or league_id, or pass --sample", file=sys.stderr)
+            return 2
+        client = _client(args)
+        book = _book(args)
+        league, focus = _resolve_league(client, args.target, args.season)
+        source = "live"
+
+    if args.roster is not None:
+        focus = args.roster
+
+    scored = score_league(league, book)
+    data = build_report_data(
+        scored, book, focus_roster=focus, source=source, limit=args.limit
+    )
+    out = write_report(data, args.out)
+
+    print(f"wrote {out}  ({out.stat().st_size / 1024:.0f} KB)")
+    print(f"  {league.name} -- {league.format_label}")
+    print(
+        f"  {len(scored.teams)} teams, {len(data['proposals'])} proposals, "
+        f"coverage {scored.coverage_skill:.1%}"
+    )
+    if focus is not None:
+        team = league.team(focus)
+        print(f"  your team: {team.team_name}" if team else f"  roster {focus}")
+    print("  open it in a browser, or share the file -- it is self-contained")
+    return 0
+
+
+def cmd_snapshot(args: argparse.Namespace) -> int:
+    """Capture a league to disk so it can be replayed offline.
+
+    Writes the Sleeper payloads and the values they were scored against, which
+    is everything needed to reproduce a run byte for byte -- useful for sharing
+    a league with someone who cannot reach the API.
+    """
+    import sys as _sys
+
+    _sys.path.insert(0, str(REPO_ROOT))
+    from scripts.make_fixture import write_values_snapshot
+
+    client = _client(args)
+    league, focus = _resolve_league(client, args.target, args.season)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+
+    lid = league.league_id
+    payloads: dict[str, object] = {}
+    for path in (
+        "state/nfl",
+        f"league/{lid}",
+        f"league/{lid}/rosters",
+        f"league/{lid}/users",
+        f"league/{lid}/traded_picks",
+        f"league/{lid}/drafts",
+        "players/nfl",
+    ):
+        try:
+            payloads[path] = client.http.get(path)
+        except SleeperError as exc:
+            print(f"  skipped {path}: {exc}", file=sys.stderr)
+
+    if not args.target.isdigit():
+        user = client.user(args.target)
+        payloads[f"user/{args.target}"] = user
+        key = f"user/{user['user_id']}/leagues/nfl/{league.season}"
+        payloads[key] = [payloads[f"league/{lid}"]]
+
+    (out / "payloads.json").write_text(json.dumps(payloads), encoding="utf-8")
+    write_values_snapshot(out / "values")
+
+    print(f"wrote {out}/payloads.json and {out}/values/")
+    print(f"  {league.name} -- {league.format_label}, your roster {focus}")
+    print("  replay it offline with:")
+    print(
+        f"    python3 -m src.cli --fixture {out}/payloads.json "
+        f"--values-dir {out}/values doctor {args.target}"
+    )
+    return 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     """The whole product, end to end, with no account and no network.
 
@@ -305,7 +426,14 @@ def cmd_demo(args: argparse.Namespace) -> int:
     print("  Run it on a real league:")
     print("    python3 -m src.cli doctor <your-sleeper-username>")
     print("    python3 -m src.cli trades <league_id>")
+    print("    python3 -m src.cli report <your-sleeper-username>   # shareable page")
     _credit()
+
+    if args.html:
+        from .report import build_report_data, write_report
+
+        data = build_report_data(scored, book, proposals=proposals, source="sample")
+        print(f"wrote {write_report(data, args.html)}")
     return 0
 
 
@@ -355,7 +483,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("demo", help="end-to-end run on the bundled sample league")
     p.add_argument("--limit", type=int, default=5)
+    p.add_argument("--html", help="also write the shareable HTML page here")
     p.set_defaults(func=cmd_demo)
+
+    p = sub.add_parser("report", help="write a shareable HTML page for a league")
+    p.add_argument("target", nargs="?", help="sleeper username or league_id")
+    p.add_argument("--sample", action="store_true", help="use the bundled sample league")
+    p.add_argument("--out", default="matchmaker-report.html")
+    p.add_argument("--roster", type=int, help="highlight this roster as yours")
+    p.add_argument("--limit", type=int, default=8)
+    p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("snapshot", help="save a league to disk for offline replay")
+    p.add_argument("target", help="sleeper username or league_id")
+    p.add_argument("--out", default="league-snapshot")
+    p.set_defaults(func=cmd_snapshot)
 
     p = sub.add_parser("leagues", help="list a user's leagues")
     p.add_argument("username")
