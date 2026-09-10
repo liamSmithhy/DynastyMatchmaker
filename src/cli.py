@@ -1,5 +1,6 @@
 """Command line interface.
 
+    demo                   full end-to-end run on the bundled sample league
     leagues  <username>    every league the user is in this season
     load     <league_id>   the normalized league: format, rosters, picks
     doctor   <username>    scores every team and reports value coverage
@@ -7,9 +8,12 @@
     history  <league_id>   completed trades across the league's history
 
 Global flags:
-    --fixture PATH   read Sleeper payloads from a JSON file instead of the API
-    --offline        never fetch; use cached data only
-    --season YEAR    which season's leagues to list
+    --fixture PATH     read Sleeper payloads from a JSON file instead of the API
+    --values-dir PATH  read values from local CSVs instead of DynastyProcess
+    --offline          never fetch; use cached data only
+    --season YEAR      which season's leagues to list
+
+Free, non-commercial use only. See LICENSING.md.
 """
 
 from __future__ import annotations
@@ -25,19 +29,36 @@ from .values import ValueBook
 
 BAR = "-"
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEMO_PAYLOADS = REPO_ROOT / "tests/fixtures/league/payloads.json"
+DEMO_VALUES = REPO_ROOT / "tests/fixtures/league/values"
+DEMO_LEAGUE_ID = "1048291736450000000"
+
+CREDIT = (
+    "Values: DynastyProcess (Tan Ho, Joe Sydlowski). "
+    "League data: Sleeper.\nFree, non-commercial use only -- see LICENSING.md."
+)
+
 
 def _client(args: argparse.Namespace) -> SleeperClient:
-    if args.fixture:
+    if getattr(args, "fixture", None):
         payloads = json.loads(Path(args.fixture).read_text(encoding="utf-8"))
         return SleeperClient(transport=DictTransport(payloads))
     return SleeperClient(offline=args.offline)
 
 
 def _book(args: argparse.Namespace) -> ValueBook:
+    values_dir = getattr(args, "values_dir", None)
+    if values_dir:
+        return ValueBook(source_dir=Path(values_dir))
     book = ValueBook(offline=args.offline)
     for note in book.notes:
         print(f"[values] {note}", file=sys.stderr)
     return book
+
+
+def _credit() -> None:
+    print(f"\n{BAR * 74}\n{CREDIT}")
 
 
 def _rule(width: int) -> str:
@@ -241,6 +262,53 @@ def cmd_history(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_demo(args: argparse.Namespace) -> int:
+    """The whole product, end to end, with no account and no network.
+
+    Runs on a sample league bundled with the repo: real players, real values,
+    invented managers. Everything the tool would do against a live Sleeper
+    league it does here, on data you can inspect in tests/fixtures/.
+    """
+    from .matchmaker import find_trades, render_proposal
+
+    if not DEMO_PAYLOADS.exists():
+        print(f"sample league missing at {DEMO_PAYLOADS}", file=sys.stderr)
+        return 2
+
+    payloads = json.loads(DEMO_PAYLOADS.read_text(encoding="utf-8"))
+    client = SleeperClient(transport=DictTransport(payloads))
+    book = ValueBook(source_dir=DEMO_VALUES)
+
+    print("=" * 74)
+    print("  DYNASTY TRADE MATCHMAKER -- DEMO")
+    print("=" * 74)
+    print("  Sample league. Real players and real DynastyProcess values;")
+    print("  the managers and rosters are invented. No network, no account.")
+
+    league = client.load_league(DEMO_LEAGUE_ID)
+    scored = score_league(league, book)
+
+    print(f"\n  Detected format: {league.format_label}")
+    print(f"  Nothing below is configured -- team count, PPR level, starting")
+    print(f"  slots and superflex are all read off the league itself.")
+
+    print_doctor(scored, verbose=False)
+
+    proposals = find_trades(scored, book, limit=args.limit, multi_team=True)
+    print("\n" + "=" * 74)
+    print(f"  {len(proposals)} TRADES THAT SHOULD HAPPEN, RANKED")
+    print("=" * 74)
+    for i, proposal in enumerate(proposals, start=1):
+        print(render_proposal(proposal, i))
+
+    print("=" * 74)
+    print("  Run it on a real league:")
+    print("    python3 -m src.cli doctor <your-sleeper-username>")
+    print("    python3 -m src.cli trades <league_id>")
+    _credit()
+    return 0
+
+
 def cmd_trades(args: argparse.Namespace) -> int:
     from .matchmaker import find_trades, render_proposal
 
@@ -278,9 +346,16 @@ def build_parser() -> argparse.ArgumentParser:
         prog="matchmaker", description="Dynasty fantasy football trade matchmaker"
     )
     parser.add_argument("--fixture", help="read Sleeper payloads from a JSON file")
+    parser.add_argument(
+        "--values-dir", dest="values_dir", help="read values from local CSVs"
+    )
     parser.add_argument("--offline", action="store_true", help="use cached data only")
     parser.add_argument("--season", type=int, help="season for league lookup")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("demo", help="end-to-end run on the bundled sample league")
+    p.add_argument("--limit", type=int, default=5)
+    p.set_defaults(func=cmd_demo)
 
     p = sub.add_parser("leagues", help="list a user's leagues")
     p.add_argument("username")

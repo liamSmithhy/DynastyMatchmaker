@@ -220,9 +220,25 @@ score = joint_gain × mutuality × simplicity × freshness
 - **simplicity** — a penalty on the number of assets moved. A 1-for-1 that
   captures 80% of the value of a 3-for-3 is the better proposal because it will
   actually get sent.
-- **freshness** — a penalty on proposals that repeat an asset already used by a
-  higher-ranked proposal, so the list shows twelve different ideas rather than
-  twelve variations on trading the same receiver.
+- **freshness** — a penalty on repeating what the list already contains.
+
+### Freshness, in three parts
+
+Selection is greedy over the freshness-adjusted score, so the raw scores in the
+final list are deliberately *not* monotone: a slightly weaker proposal that
+introduces new teams and new assets outranks a stronger variation on the deal
+above it.
+
+| Repetition | Penalty | Why |
+| --- | --- | --- |
+| same two teams trading again | heaviest | this is the definition of "a variation on one idea" |
+| an asset already spoken for | heavy | you cannot trade the same receiver twice |
+| a team that has already appeared | light | spreads suggestions across the league |
+
+Without these, the single largest surplus in the league wins every slot. The
+list reads as twelve versions of one deal, one manager gets twelve suggestions,
+and the other eleven get none — which for a product the commissioner buys on
+behalf of twelve managers is a straightforward failure.
 
 ---
 

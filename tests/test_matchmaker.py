@@ -8,6 +8,7 @@ from src.matchmaker import (
     WINDOW_WEIGHTS,
     Asset,
     Side,
+    player_asset,
     _cancel,
     find_trades,
     outbound_candidates,
@@ -32,9 +33,26 @@ RB = RosterSlot("RB", frozenset({"RB"}))
 
 
 def asset(name, value, position="WR", age=26.0, is_pick=False):
+    """A bare asset, for tests that only care about labels and values."""
     return Asset(
         key=f"x:{name}", label=name, value=value, position=position,
         age=age, is_pick=is_pick,
+    )
+
+
+def real_asset(name, value, position="WR", age=26.0):
+    """An asset backed by an actual player, so the lineup solver can see it.
+
+    A bare Asset carries no ValuedPlayer, so it never reaches a lineup -- which
+    makes any test of deployment against one pass for the wrong reason.
+    """
+    return player_asset(
+        ValuedPlayer(
+            player=RosterPlayer(name, name, position, "FA", age, "BENCH"),
+            value=value,
+            matched_by="sleeper",
+            record=None,
+        )
     )
 
 
@@ -290,6 +308,47 @@ class TestRankingAndDeterminism:
         assert make(1).score > make(2).score
 
 
+class TestDeadWeight:
+    def test_paying_a_premium_for_a_player_you_cannot_start_is_refused(self, scratch_scored):
+        """Spec section 5: a side may take on an undeployable player as a trade
+        chip, but not while also losing the value exchange."""
+        team = next(iter(scratch_scored.teams))
+        weights = WINDOW_WEIGHTS[team.window]
+        side = Side(
+            team=team,
+            sends=[real_asset("Real Starter", 5000, position="RB")],
+            receives=[real_asset("Cannot Start", 4000, position="XX")],
+        )
+        score_side(side, scratch_scored.settings.starter_slots, weights)
+        assert side.deployed_in == 0
+        assert side.market_delta < 0
+        assert not side_accepts(side, weights)
+
+    def test_an_undeployable_player_is_acceptable_when_winning_on_value(
+        self, scratch_scored
+    ):
+        team = next(iter(scratch_scored.teams))
+        weights = WINDOW_WEIGHTS[team.window]
+        side = Side(
+            team=team,
+            sends=[real_asset("Chip", 100, position="RB")],
+            receives=[real_asset("Cannot Start", 4000, position="XX")],
+        )
+        score_side(side, scratch_scored.settings.starter_slots, weights)
+        assert side.deployed_in == 0
+        assert side.market_delta > 0
+        assert side_accepts(side, weights)
+
+    def test_deployed_in_counts_arrivals_that_reach_the_lineup(self, scratch_scored):
+        team = next(iter(scratch_scored.teams))
+        weights = WINDOW_WEIGHTS[team.window]
+        side = Side(
+            team=team, sends=[], receives=[real_asset("Superstar", 99999, position="WR")]
+        )
+        score_side(side, scratch_scored.settings.starter_slots, weights)
+        assert side.deployed_in == 1
+
+
 class TestPitch:
     def test_pitch_names_both_packages(self, scored, league_book):
         proposal = find_trades(scored, league_book, limit=1)[0]
@@ -308,3 +367,19 @@ class TestPitch:
             text = pitch(proposal)
             assert text.startswith("Hey —")
             assert "I'd send you:" in text
+
+    def test_opener_describes_the_sender_not_the_recipient(self, scored, league_book):
+        """The message is written in the first person and signed by the sender,
+        so the opener has to be the sender's situation. Keying it off the
+        recipient had a contender opening with a retooler's problem."""
+        openers = {
+            CONTENDER: "going for it",
+            TOP_HEAVY: "get younger without",
+            RETOOLER: "depth I can't start",
+            REBUILD: "building for a couple",
+            STUCK: "pick a direction",
+        }
+        for proposal in find_trades(scored, league_book, limit=10, multi_team=True):
+            for i, side in enumerate(proposal.sides):
+                text = pitch(proposal, from_side=i)
+                assert openers[side.window] in text

@@ -87,6 +87,7 @@ class HttpTransport:
         self.base_url = base_url.rstrip("/")
         self.retries = retries
         self.calls = 0
+        self.notes: list[str] = []
 
     def _cache_path(self, path: str) -> Path:
         safe = path.strip("/").replace("/", "__") or "root"
@@ -105,7 +106,19 @@ class HttpTransport:
         if self.offline:
             raise SleeperError(f"offline and no cache for {path}")
 
-        payload = self._fetch(path)
+        try:
+            payload = self._fetch(path)
+        except SleeperError:
+            # A stale answer beats a failed run. Sleeper being briefly
+            # unreachable should not lose a user their league.
+            if cache_path.exists():
+                try:
+                    self.notes.append(f"{path}: fetch failed, using cached copy")
+                    return json.loads(cache_path.read_text(encoding="utf-8"))
+                except ValueError:
+                    pass
+            raise
+
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(payload), encoding="utf-8")
         return payload

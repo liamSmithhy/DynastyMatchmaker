@@ -1,5 +1,8 @@
 # Dynasty Trade Matchmaker
 
+**Free, non-commercial use.** Every feature is enabled and there is no paid tier
+— see [LICENSING.md](LICENSING.md) for why, and what to ask Sleeper for.
+
 Every tool on the market grades a trade you already thought of. This one finds
 the trade.
 
@@ -22,16 +25,29 @@ standard library.
 ```bash
 git clone <this repo>
 cd DynastyMatchmaker
-python3 -m pytest tests/ -q          # 166 tests, no network required
+python3 -m pytest tests/ -q          # 170 tests, no network required
 ```
 
 Data is fetched on first use and cached to `~/.cache/dynasty-matchmaker`
 (override with `DYNASTY_CACHE_DIR`). Values are cached 12h, the Sleeper player
 dump 24h.
 
+## Try it in one command
+
+No account, no network, no setup:
+
+```bash
+python3 -m src.cli demo
+```
+
+That runs the whole pipeline on a sample league bundled with the repo — real
+players and real DynastyProcess values, invented managers — and prints the
+scored board, every team's window, and the ranked proposals with pitch text.
+
 ## Commands
 
 ```bash
+python3 -m src.cli demo                         # end-to-end on the sample league
 python3 -m src.cli leagues  <username>          # every league this season
 python3 -m src.cli load     <league_id>         # normalized league + rosters
 python3 -m src.cli load     <league_id> --roster 4
@@ -39,18 +55,21 @@ python3 -m src.cli doctor   <username>          # score every team, check covera
 python3 -m src.cli doctor   <username> -v       # + optimal lineups
 python3 -m src.cli trades   <league_id>         # ranked proposals
 python3 -m src.cli trades   <league_id> --roster 4 --limit 5
-python3 -m src.cli trades   <league_id> --multi-team    # 3-team rings (paid)
+python3 -m src.cli trades   <league_id> --multi-team    # include 3-team rings
 python3 -m src.cli history  <league_id>         # completed trades, all seasons
 ```
 
 Global flags: `--offline` (cached data only), `--season YEAR`,
-`--fixture PATH` (read Sleeper payloads from a file instead of the API).
+`--fixture PATH` (read Sleeper payloads from a file instead of the API),
+`--values-dir PATH` (read values from local CSVs instead of DynastyProcess).
 
-Try it without a Sleeper account:
+To drive the sample league through the normal commands rather than `demo`:
 
 ```bash
-python3 -m src.cli --fixture tests/fixtures/league/payloads.json doctor liamsmithh
-python3 -m src.cli --fixture tests/fixtures/league/payloads.json trades 1048291736450000000
+FX=tests/fixtures/league/payloads.json
+VD=tests/fixtures/league/values
+python3 -m src.cli --fixture $FX --values-dir $VD doctor liamsmithh
+python3 -m src.cli --fixture $FX --values-dir $VD trades 1048291736450000000
 ```
 
 ## Layout
@@ -115,15 +134,13 @@ An honest list, worst first.
 
 ### 1. The commercial blocker is unresolved, and it is not a technical one
 
-Sleeper's API is free for **non-commercial** use. This product charges money.
-That is not a licensing detail to sort out later — it gates the entire paid
-tier, and no amount of engineering moves it. Until Sleeper grants written
-commercial permission there is no business here, only a good free tool.
-DynastyProcess's licence needs the same confirmation before its numbers are
-resold.
+Sleeper's API is free for **non-commercial** use. A $9.99 product is not that.
+No amount of engineering moves it, so the tool currently ships free with every
+feature enabled and no billing code, which is the only honest position until
+Sleeper answers. DynastyProcess's licence needs the same confirmation before its
+numbers are resold.
 
-I would resolve this before writing another line of code. Everything below is
-subordinate to it.
+`LICENSING.md` sets out what to ask for. Everything below is subordinate to it.
 
 ### 2. Value is one vendor's opinion, taken as ground truth
 

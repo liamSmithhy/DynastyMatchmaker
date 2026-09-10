@@ -62,7 +62,14 @@ AGE_REFERENCE = 27.0  # youth delta is measured against a neutral dynasty age
 
 MAX_PER_SIDE = 2
 SIMPLICITY_PENALTY = 0.87  # per asset beyond the first on each side
-REPEAT_PENALTY = 0.55      # per asset already used by a better-ranked proposal
+
+# Diversity penalties, applied when selecting the final list. A ranked list is
+# only useful if it contains different ideas: without these the biggest surplus
+# in the league wins every slot, and one manager gets twelve suggestions while
+# the other eleven get none.
+REPEAT_PENALTY = 0.55  # per asset already spoken for by a better proposal
+PAIR_PENALTY = 0.45    # per earlier proposal between these same two teams
+TEAM_PENALTY = 0.85    # per team already featured anywhere in the list
 
 
 # --------------------------------------------------------------------------
@@ -131,6 +138,7 @@ class Side:
     youth_delta: float = 0.0
     capital_delta: float = 0.0
     gain: float = 0.0
+    deployed_in: int = 0   # incoming players who actually reach the lineup
 
     @property
     def window(self) -> str:
@@ -178,10 +186,26 @@ def lineup_with(
     worth a starting slot to one team and a bench spot to another, which is the
     difference the trade monetises.
     """
+    return _solve_swap(team, slots, incoming, outgoing)[0]
+
+
+def _solve_swap(
+    team: TeamScore,
+    slots: Sequence[RosterSlot],
+    incoming: Sequence[Asset],
+    outgoing: Sequence[Asset],
+) -> tuple[float, int]:
+    """Lineup value after the swap, and how many arrivals actually start."""
     removed = {a.player.player.sleeper_id for a in outgoing if a.player is not None}
     roster = [p for p in team.roster if p.player.sleeper_id not in removed]
-    roster += [a.player for a in incoming if a.player is not None]
-    return _lineup_value(roster, slots)
+    arrivals = [a.player for a in incoming if a.player is not None]
+    roster += arrivals
+
+    arrival_ids = {id(p) for p in arrivals}
+    filled = optimal_lineup(roster, slots)
+    total = sum(p.value for _, p in filled if p is not None)
+    started = sum(1 for _, p in filled if p is not None and id(p) in arrival_ids)
+    return total, started
 
 
 def outbound_candidates(team: TeamScore, replacement: dict[str, float]) -> list[Asset]:
@@ -231,8 +255,9 @@ def score_side(
 ) -> None:
     """Score one side of a trade in the terms its own window cares about."""
     before = side.team.starter_value
-    after = lineup_with(side.team, slots, side.receives, side.sends)
+    after, started = _solve_swap(side.team, slots, side.receives, side.sends)
     side.lineup_gain = after - before
+    side.deployed_in = started
 
     sent = sum(a.value for a in side.sends)
     got = sum(a.value for a in side.receives)
@@ -258,9 +283,12 @@ def score_side(
 def side_accepts(side: Side, weights: dict[str, float]) -> bool:
     """Would this manager say yes?
 
-    Three independent hurdles: the deal must be a net gain in that team's own
-    terms, the value gap must be inside what its window tolerates, and it must
-    not be selling something its own lineup depends on.
+    Four independent hurdles: the deal must be a net gain in that team's own
+    terms, the value gap must be inside what its window tolerates, it must not
+    be selling something its own lineup depends on, and it must not be paying
+    for players it cannot use.
+
+    Requires ``score_side`` to have run first.
     """
     if side.gain <= 0:
         return False
@@ -272,6 +300,13 @@ def side_accepts(side: Side, weights: dict[str, float]) -> bool:
     # Selling a starter is allowed only if the return rebuilds the lineup. This
     # is what stops the generator gutting a roster to balance a spreadsheet.
     if side.lineup_gain < 0 and abs(side.lineup_gain) > 0.35 * max(sent, 1.0):
+        return False
+
+    # Taking on a player you cannot start is fine if you are winning the value
+    # exchange -- he is a trade chip. Paying a premium for one is not: that is
+    # a second quarterback in a 1QB league, bought at market.
+    incoming_players = [a for a in side.receives if not a.is_pick]
+    if incoming_players and side.deployed_in == 0 and side.market_delta < 0:
         return False
 
     return True
@@ -497,33 +532,53 @@ def _reason(side: Side) -> str:
     return f"{side.team.name} [{side.window}]: " + ", ".join(bits or ["marginal"])
 
 
-def rank(proposals: Sequence[Proposal], limit: int) -> list[Proposal]:
-    """Best first, with a penalty for reusing assets already spoken for.
+def _pair_key(proposal: Proposal) -> tuple[int, ...]:
+    return tuple(sorted(s.team.roster_id for s in proposal.sides))
 
-    Without the freshness term the list fills with twelve variations on trading
-    the same receiver, which is one idea presented twelve times.
+
+def rank(proposals: Sequence[Proposal], limit: int) -> list[Proposal]:
+    """Best first, discounted for repeating what the list already contains.
+
+    Three kinds of repetition get penalised, in descending severity: the same
+    two teams trading again, an asset already spoken for, and a team that has
+    already appeared at all. Without them the single largest surplus in the
+    league wins every slot -- the list reads as twelve variations on one deal,
+    and eleven managers get no suggestion at all.
     """
     remaining = sorted(
         proposals,
         key=lambda p: (
             -p.score,
             p.size,
-            tuple(sorted(s.team.roster_id for s in p.sides)),
+            _pair_key(p),
             tuple(sorted(p.assets)),
         ),
     )
     chosen: list[Proposal] = []
     used: set[str] = set()
+    pairs: dict[tuple[int, ...], int] = {}
+    teams: set[int] = set()
+
     while remaining and len(chosen) < limit:
         best_idx, best_adj = 0, float("-inf")
         for i, proposal in enumerate(remaining):
             overlap = len(proposal.assets & used)
-            adjusted = proposal.score * (REPEAT_PENALTY ** overlap)
+            repeats = pairs.get(_pair_key(proposal), 0)
+            seen = sum(1 for s in proposal.sides if s.team.roster_id in teams)
+            adjusted = (
+                proposal.score
+                * (REPEAT_PENALTY ** overlap)
+                * (PAIR_PENALTY ** repeats)
+                * (TEAM_PENALTY ** seen)
+            )
             if adjusted > best_adj:
                 best_idx, best_adj = i, adjusted
         picked = remaining.pop(best_idx)
         chosen.append(picked)
         used |= picked.assets
+        key = _pair_key(picked)
+        pairs[key] = pairs.get(key, 0) + 1
+        teams |= {s.team.roster_id for s in picked.sides}
     return chosen
 
 
@@ -581,13 +636,16 @@ def pitch(proposal: Proposal, from_side: int = 0) -> str:
     giving = " + ".join(a.label for a in me.sends)
     getting = " + ".join(a.label for a in me.receives)
 
+    # The opener describes MY situation -- it is written in the first person and
+    # signed by me. Keying it off the recipient's window had a contender opening
+    # with "I've got depth I can't start", which is a different team's problem.
     opener = {
         CONTENDER: "I'm going for it this year and need help in the lineup.",
         TOP_HEAVY: "I'm trying to get younger without falling out of it.",
         RETOOLER: "I've got depth I can't start and I'd rather consolidate.",
         REBUILD: "I'm building for a couple of years out.",
         STUCK: "I'm trying to pick a direction and this helps.",
-    }[them.window]
+    }[me.window]
 
     why = []
     if them.lineup_gain > 1:

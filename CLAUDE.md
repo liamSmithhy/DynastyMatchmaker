@@ -117,3 +117,22 @@ Full player endpoint ~5MB: call once daily max.
 
 Direct and practical. Challenge the approach when there's a better one. Compare
 options and recommend the strongest. Flag risks and blind spots proactively.
+
+---
+
+## Current status (updated after the first build)
+
+**Shipping free, non-commercial. No paid tier, no billing code.** The pricing
+model above remains the intent, but Sleeper's API is licensed for
+non-commercial use, so charging for it is blocked until they answer in writing.
+Every feature — multi-team deals included — is enabled for everyone meanwhile.
+See `LICENSING.md` for what to ask them for.
+
+`python3 -m src.cli demo` runs the whole pipeline on a bundled sample league
+with no account and no network. Use it to show what the tool does.
+
+Stage 1 was verified against live DynastyProcess data. Stages 2-4 were verified
+against a fixture built to the documented Sleeper schemas, because the build
+sandbox blocked every Sleeper host at its egress proxy; `scripts/verify_stage2.py`
+tries live first and falls back, so re-running it anywhere Sleeper is reachable
+verifies against the real league with no code change.
