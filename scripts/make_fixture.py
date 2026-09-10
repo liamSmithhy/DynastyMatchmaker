@@ -84,40 +84,66 @@ def build(out_dir: Path, seed: int = 7) -> None:
     # roster for taxi and IR.
     base_targets = {"QB": 2, "RB": 6, "WR": 8, "TE": 3}
     tilts = {
-        "wr_rich": {"WR": +4, "RB": -3},
+        "wr_rich": {"WR": +3, "RB": -3},
         "rb_rich": {"RB": +4, "WR": -3},
         "te_rich": {"TE": +3, "WR": -2},
         "qb_rich": {"QB": +3, "RB": -2},
         "contender": {},
         "rebuild": {},
-        "top_heavy": {},
+        "top_heavy": {"WR": -2, "RB": -2},
         "balanced": {},
     }
 
-    # Draft order per position: strong archetypes pick earlier from their pool.
+    # Per-position draft priority (0 picks first). Imbalance has to be in
+    # QUALITY, not headcount -- ten mediocre receivers are not a surplus, so a
+    # WR-rich team must draft near the top of the WR board and near the bottom
+    # of the RB board. Otherwise there is no real trade for the matchmaker to
+    # find and the verification proves nothing.
     priority = {
-        "contender": 0,
-        "top_heavy": 0,
-        "wr_rich": 1,
-        "rb_rich": 1,
-        "te_rich": 1,
-        "qb_rich": 1,
-        "balanced": 2,
-        "rebuild": 3,
+        "contender":  {"QB": 0, "RB": 0, "WR": 0, "TE": 0},
+        "top_heavy":  {"QB": 0, "RB": 0, "WR": 0, "TE": 0},
+        "wr_rich":    {"QB": 2, "RB": 3, "WR": 0, "TE": 2},
+        "rb_rich":    {"QB": 2, "RB": 0, "WR": 3, "TE": 2},
+        "te_rich":    {"QB": 2, "RB": 2, "WR": 3, "TE": 0},
+        "qb_rich":    {"QB": 0, "RB": 3, "WR": 2, "TE": 2},
+        "balanced":   {"QB": 2, "RB": 2, "WR": 2, "TE": 2},
+        "rebuild":    {"QB": 3, "RB": 3, "WR": 3, "TE": 3},
     }
 
     rosters_players: dict[int, list[str]] = {rid: [] for rid in ARCHETYPES}
     cursors = {pos: 0 for pos in pools}
 
+    # Which archetype corners which position. A snake alone cannot manufacture
+    # a surplus: it hands a WR-heavy team the 1st, 13th, 25th... receiver, all
+    # of which start. A real surplus is CONSECUTIVE quality at one position --
+    # eight of the top thirty receivers, only five of whom can play -- so the
+    # hoarders take their allotment off the top before the snake runs.
+    hoards = {"wr_rich": "WR", "rb_rich": "RB", "te_rich": "TE", "qb_rich": "QB"}
+
     for pos in ("QB", "RB", "WR", "TE"):
         order = sorted(
             ARCHETYPES,
-            key=lambda rid: (priority[ARCHETYPES[rid]], rng.random()),
+            key=lambda rid: (priority[ARCHETYPES[rid]][pos], rng.random()),
         )
         wanted = {
             rid: max(0, base_targets[pos] + tilts[ARCHETYPES[rid]].get(pos, 0))
             for rid in ARCHETYPES
         }
+
+        # Four off the top, every other one, then the snake fills the rest.
+        # Cornering a whole tier would leave the league with no receivers and
+        # make every hoarder trivially the best team, which would make the
+        # window classification meaningless. Four top-tier bodies at a position
+        # with three or four slots is what a real surplus looks like.
+        for rid in sorted(ARCHETYPES):
+            if hoards.get(ARCHETYPES[rid]) != pos:
+                continue
+            hoard = min(4, wanted[rid])
+            taken = pools[pos][1: 1 + 2 * hoard: 2]
+            for player in taken:
+                pools[pos].remove(player)
+                rosters_players[rid].append(player.sleeper_id)
+            wanted[rid] -= len(taken)
         # Snake through the wanted counts so the good pools drain top-down.
         for round_idx in range(max(wanted.values())):
             sweep = order if round_idx % 2 == 0 else list(reversed(order))
