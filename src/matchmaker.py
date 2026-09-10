@@ -67,6 +67,20 @@ AGE_REFERENCE = 27.0  # youth delta is measured against a neutral dynasty age
 # just stop being willing to sell this season to fix it.
 WIN_NOW_BLEND = 0.6
 
+# The most value a win-now manager will visibly give up, as a fraction of what
+# he sends. The contender profile tolerates 18% because a contender knows he is
+# buying a window; a room where everyone thinks they are contending is also a
+# room where nobody wants to be seen losing a trade, and that is a much tighter
+# number. This is what "some managers are stubborn" costs the trade market.
+WIN_NOW_TOLERANCE = 0.11
+
+# "Nobody accepts a worse lineup" means meaningfully worse, not arithmetically
+# worse. A manager who gains real value or youth will wave through a change of
+# a percent or two in his projected lineup -- that is inside the noise of the
+# board he is reading. Holding the line at strictly-greater-than-zero rejected
+# most of the league's genuinely complementary pairs over rounding.
+WIN_NOW_LINEUP_SLACK = 0.03
+
 
 def win_now_weights(window: str, blend: float = WIN_NOW_BLEND) -> dict[str, float]:
     """A window's weights, pulled toward the contender profile.
@@ -78,7 +92,9 @@ def win_now_weights(window: str, blend: float = WIN_NOW_BLEND) -> dict[str, floa
     acceptance test match how the room actually behaves.
     """
     base, target = WINDOW_WEIGHTS[window], WINDOW_WEIGHTS[CONTENDER]
-    return {k: base[k] + (target[k] - base[k]) * blend for k in base}
+    blended = {k: base[k] + (target[k] - base[k]) * blend for k in base}
+    blended["tolerance"] = min(blended["tolerance"], WIN_NOW_TOLERANCE)
+    return blended
 
 MAX_PER_SIDE = 2
 SIMPLICITY_PENALTY = 0.87  # per asset beyond the first on each side
@@ -352,7 +368,7 @@ def side_accepts(
     # A manager who believes he is contending does not accept a worse lineup,
     # whatever the return. This is the single rule that stops the generator
     # proposing sell-offs into a room where nobody is selling.
-    if win_now and side.lineup_gain <= 0:
+    if win_now and side.lineup_gain < -WIN_NOW_LINEUP_SLACK * max(sent, 1.0):
         return False
 
     # And a stubborn one does not accept losing the value exchange either --
@@ -598,7 +614,9 @@ def _pair_key(proposal: Proposal) -> tuple[int, ...]:
     return tuple(sorted(s.team.roster_id for s in proposal.sides))
 
 
-def rank(proposals: Sequence[Proposal], limit: int) -> list[Proposal]:
+def rank(
+    proposals: Sequence[Proposal], limit: int, max_per_pair: int = MAX_PER_PAIR
+) -> list[Proposal]:
     """Best first, discounted for repeating what the list already contains.
 
     Three kinds of repetition get penalised, in descending severity: the same
@@ -625,7 +643,7 @@ def rank(proposals: Sequence[Proposal], limit: int) -> list[Proposal]:
         best_idx, best_adj = -1, float("-inf")
         for i, proposal in enumerate(remaining):
             repeats = pairs.get(_pair_key(proposal), 0)
-            if repeats >= MAX_PER_PAIR:
+            if repeats >= max_per_pair:
                 continue
             overlap = len(proposal.assets & used)
             seen = sum(1 for s in proposal.sides if s.team.roster_id in teams)
@@ -661,6 +679,8 @@ def find_trades(
     limit: int = 10,
     multi_team: bool = False,
     max_per_side: int = MAX_PER_SIDE,
+    max_per_pair: int = MAX_PER_PAIR,
+    beam: int = 6,
     exclude_positions: Iterable[str] = (),
     win_now: bool = False,
     stubborn: Iterable[str] = (),
@@ -684,7 +704,7 @@ def find_trades(
         if roster_id is not None and roster_id not in (a.roster_id, b.roster_id):
             continue
         proposals += pair_proposals(
-            a, b, slots, replacement, max_per_side=max_per_side,
+            a, b, slots, replacement, max_per_side=max_per_side, beam=beam,
             exclude_positions=excluded, win_now=win_now, stubborn=stuck_on,
         )
 
@@ -700,7 +720,7 @@ def find_trades(
             ]
         proposals += rings
 
-    return rank(proposals, limit)
+    return rank(proposals, limit, max_per_pair)
 
 
 # --------------------------------------------------------------------------

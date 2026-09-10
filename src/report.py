@@ -131,6 +131,9 @@ def build_report_data(
     exclude_positions: Any = (),
     win_now: bool = False,
     stubborn: Any = (),
+    max_per_side: int = 2,
+    max_per_pair: int = 2,
+    beam: int = 6,
 ) -> dict[str, Any]:
     """Everything the page needs, as plain JSON-able data."""
     settings = scored.settings
@@ -140,6 +143,7 @@ def build_report_data(
             scored, book, limit=limit, multi_team=True,
             exclude_positions=exclude_positions,
             win_now=win_now, stubborn=stubborn,
+            max_per_side=max_per_side, max_per_pair=max_per_pair, beam=beam,
         )
 
     ordered = sorted(scored.teams, key=lambda t: t.overall_rank)

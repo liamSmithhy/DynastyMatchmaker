@@ -54,10 +54,14 @@ def _book(args: argparse.Namespace) -> ValueBook:
     overrides = getattr(args, "values_csv", None)
     if values_dir:
         book = ValueBook(source_dir=Path(values_dir), overrides=overrides,
-                     pick_scale=getattr(args, 'pick_scale', 1.0) or 1.0)
+                     pick_scale=getattr(args, 'pick_scale', 1.0) or 1.0,
+                     elite_premium=getattr(args, 'elite_premium', 0.0) or 0.0,
+                     youth_premium=getattr(args, 'youth_premium', 0.0) or 0.0)
     else:
         book = ValueBook(offline=args.offline, overrides=overrides,
-                         pick_scale=getattr(args, 'pick_scale', 1.0) or 1.0)
+                         pick_scale=getattr(args, 'pick_scale', 1.0) or 1.0,
+                     elite_premium=getattr(args, 'elite_premium', 0.0) or 0.0,
+                     youth_premium=getattr(args, 'youth_premium', 0.0) or 0.0)
     for note in book.notes:
         print(f"[values] {note}", file=sys.stderr)
     return book
@@ -360,6 +364,9 @@ def cmd_report(args: argparse.Namespace) -> int:
         title=args.title, exclude_positions=_excluded(args),
         win_now=getattr(args, 'win_now', False),
         stubborn=getattr(args, 'stubborn', []) or [],
+        max_per_side=getattr(args, 'max_per_side', 2),
+        max_per_pair=getattr(args, 'max_per_pair', 2),
+        beam=getattr(args, 'beam', 6),
     )
     out = write_report(data, args.out)
 
@@ -499,6 +506,9 @@ def cmd_trades(args: argparse.Namespace) -> int:
         exclude_positions=_excluded(args),
         win_now=getattr(args, "win_now", False),
         stubborn=getattr(args, "stubborn", []) or [],
+        max_per_side=getattr(args, "max_per_side", 2),
+        max_per_pair=getattr(args, "max_per_pair", 2),
+        beam=getattr(args, "beam", 6),
     )
     if not proposals:
         print("no trades cleared both sides. Nobody's surplus lines up with "
@@ -543,6 +553,16 @@ def build_parser() -> argparse.ArgumentParser:
                         help="every manager believes they can win: nobody accepts a worse lineup")
     parser.add_argument("--stubborn", action="append", default=[], metavar="TEAM",
                         help="this manager must also win the value exchange (repeatable)")
+    parser.add_argument("--max-per-side", dest="max_per_side", type=int, default=2,
+                        help="most assets either side may send (default 2)")
+    parser.add_argument("--max-per-pair", dest="max_per_pair", type=int, default=2,
+                        help="most proposals between the same two teams (default 2)")
+    parser.add_argument("--elite-premium", dest="elite_premium", type=float, default=0.0,
+                        help="acquisition premium on the best players, e.g. 0.15")
+    parser.add_argument("--youth-premium", dest="youth_premium", type=float, default=0.0,
+                        help="acquisition premium on the youngest players, e.g. 0.12")
+    parser.add_argument("--beam", type=int, default=6,
+                        help="candidate assets considered per side (default 6)")
     parser.add_argument("--offline", action="store_true", help="use cached data only")
     parser.add_argument("--season", type=int, help="season for league lookup")
     sub = parser.add_subparsers(dest="command", required=True)

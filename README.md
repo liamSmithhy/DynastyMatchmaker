@@ -25,7 +25,7 @@ standard library.
 ```bash
 git clone <this repo>
 cd DynastyMatchmaker
-python3 -m pytest tests/ -q          # 226 tests, no network required
+python3 -m pytest tests/ -q          # 228 tests, no network required
 ```
 
 Data is fetched on first use and cached to `~/.cache/dynasty-matchmaker`
@@ -61,9 +61,19 @@ Knobs for leagues whose market differs from the consensus board:
 --weight QB=0.3            # scale a position's value (repeatable, any position)
 --values-csv ktc.csv       # reprice players from an outside sheet
 --pick-scale 3.5           # calibrate pick prices to what the league pays
+--elite-premium 0.15       # the best players cost more than their rank implies
+--youth-premium 0.12       # so do the youngest
 --win-now                  # nobody accepts a worse lineup: everyone thinks they can win
 --stubborn "Team Name"     # this manager must also win the value exchange
+--max-per-side 3           # allow bigger packages (more trades clear)
+--max-per-pair 1           # at most one proposal per matchup (spreads the slate)
+--beam 10                  # candidate assets considered per side
 ```
+
+The two premiums are the difference between a ranking sheet and a trade market.
+A sheet says what a player is worth; a market is what someone will pay, and the
+gap runs in a consistent direction — the scarce and the young cost a little
+extra because more managers want them and only one can have them.
 
 `--pick-scale` matters more than it looks. DynastyProcess prices picks off
 expected production; leagues trade them at the crowd price, which is several

@@ -46,7 +46,23 @@ LEAGUE_ID = "1126400000000000001"
 #
 # One parameter fitted to twelve ranks is calibration, not proof. Re-fit it if
 # the commissioner's ranking changes.
-RECOMMENDED_FLAGS = "--pick-scale 3.5 --win-now --exclude-position QB"
+RECOMMENDED_FLAGS = (
+    "--pick-scale 3.5 --elite-premium 0.15 --youth-premium 0.12 "
+    "--win-now --exclude-position QB --max-per-side 3 --max-per-pair 1 --beam 10"
+)
+
+# --elite-premium / --youth-premium are the market's markup over the board: the
+# best and the youngest cost a little more than their rank implies because more
+# managers want them. With both on, Marvin Harrison Jr. straight across for
+# Chase Brown stops clearing -- the commissioner's own test case.
+#
+# --max-per-side 3 / --beam 10 / --max-per-pair 1 exist to spread the slate.
+# Under win-now only three team pairs clear with two-asset packages; widening
+# the packages and capping each pairing at one proposal reaches ten trades
+# across ten of the twelve teams. Gallons of Grease and Dab Kit A&M have no
+# valid trade at any setting, which is the model agreeing with the writeup:
+# one is mortgaged with nothing but starters to give, the other is too old to
+# fund anything once the youth premium applies.
 SEASON = "2026"
 TEAMS = 12
 DRAFT_ROUNDS = 4

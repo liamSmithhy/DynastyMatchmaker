@@ -59,6 +59,29 @@ def real_asset(name, value, position="WR", age=26.0):
     )
 
 
+def _vp(key, age, value, position="RB"):
+    """A valued player with no fixture behind it."""
+    return ValuedPlayer(
+        player=RosterPlayer(key, key, position, "FA", age, "STARTER"),
+        value=value,
+        matched_by="sleeper",
+        record=None,
+    )
+
+
+def _synthetic(roster, slots, window=CONTENDER):
+    """A TeamScore built from nothing, so lineup effects are controlled."""
+    team = Team(roster_id=99, owner_id="u", manager="m", team_name="Synthetic")
+    score = TeamScore(
+        team=team, starters=[], lineup=optimal_lineup(roster, slots),
+        roster=roster, picks=[],
+    )
+    score.starters = [p for _, p in score.lineup if p is not None]
+    score.starter_value = sum(p.value for p in score.starters)
+    score.window = window
+    return score
+
+
 class TestCancellation:
     def test_identical_labels_cancel(self):
         a, b = _cancel([asset("2028 1st", 1500, is_pick=True)],
@@ -190,12 +213,12 @@ class TestOutboundCandidates:
         """
         slots = [RB, RB, RosterSlot("FLEX", frozenset({"RB", "WR", "TE"}))]
         roster = [
-            self._vp("old", 31.0, 6000.0),
-            self._vp("backup1", 24.0, 5800.0),
-            self._vp("backup2", 24.0, 5600.0),
-            self._vp("backup3", 24.0, 5400.0),
+            _vp("old", 31.0, 6000.0),
+            _vp("backup1", 24.0, 5800.0),
+            _vp("backup2", 24.0, 5600.0),
+            _vp("backup3", 24.0, 5400.0),
         ]
-        team = self._synthetic(roster, slots)
+        team = _synthetic(roster, slots)
         assert any(p is roster[0] for _, p in team.lineup), "seller must be starting"
 
         gains, verdicts = {}, {}
@@ -214,30 +237,6 @@ class TestOutboundCandidates:
         assert gains[REBUILD] > gains[CONTENDER]
         assert verdicts[REBUILD] is True
         assert verdicts[CONTENDER] is False
-
-    @staticmethod
-    def _vp(key, age, value, position="RB"):
-        return ValuedPlayer(
-            player=RosterPlayer(key, key, position, "FA", age, "STARTER"),
-            value=value,
-            matched_by="sleeper",
-            record=None,
-        )
-
-    @staticmethod
-    def _synthetic(roster, slots):
-        team = Team(roster_id=99, owner_id="u", manager="m", team_name="Synthetic")
-        score = TeamScore(
-            team=team,
-            starters=[],
-            lineup=optimal_lineup(roster, slots),
-            roster=roster,
-            picks=[],
-        )
-        score.starters = [p for _, p in score.lineup if p is not None]
-        score.starter_value = sum(p.value for p in score.starters)
-        score.window = CONTENDER
-        return score
 
     def test_a_young_starter_is_not_sold_even_by_a_rebuilder(self, scratch_scored):
         """Age is the trigger, not the window alone -- a rebuilder holds its kids."""
@@ -467,24 +466,65 @@ class TestWinNowLeague:
             assert blended["lineup"] > base["lineup"], window
             assert blended["capital"] < base["capital"], window
 
-    def test_the_contender_profile_is_its_own_fixed_point(self):
-        from src.matchmaker import win_now_weights
+    def test_the_contender_profile_is_its_own_fixed_point_except_tolerance(self):
+        """Blending a contender toward a contender changes nothing -- except
+        how much value he will visibly give up. A contender alone knows he is
+        buying a window and overpays for it; a whole room of them will not let
+        each other win a trade."""
+        from src.matchmaker import WIN_NOW_TOLERANCE, win_now_weights
 
-        assert win_now_weights(CONTENDER) == pytest.approx(WINDOW_WEIGHTS[CONTENDER])
+        blended = win_now_weights(CONTENDER)
+        for key in ("lineup", "market", "youth", "capital"):
+            assert blended[key] == pytest.approx(WINDOW_WEIGHTS[CONTENDER][key])
+        assert blended["tolerance"] == WIN_NOW_TOLERANCE
+        assert blended["tolerance"] < WINDOW_WEIGHTS[CONTENDER]["tolerance"]
 
-    def test_a_worse_lineup_is_refused_however_good_the_return(self, scratch_scored):
-        team = next(iter(scratch_scored.teams))
+    def test_every_window_is_capped_at_the_win_now_tolerance(self):
+        from src.matchmaker import WIN_NOW_TOLERANCE, win_now_weights
+
+        for window in WINDOW_WEIGHTS:
+            assert win_now_weights(window)["tolerance"] <= WIN_NOW_TOLERANCE
+
+    def test_a_meaningfully_worse_lineup_is_refused_however_good_the_return(self):
+        """A rebuilder would happily sell a starter for a huge pick. In a room
+        where he insists he is contending, he will not."""
+        slots = [RB, RB, RosterSlot("FLEX", frozenset({"RB", "WR", "TE"}))]
+        roster = [
+            _vp("star", 31.0, 6000.0),
+            _vp("scrub1", 24.0, 400.0),
+            _vp("scrub2", 24.0, 300.0),
+            _vp("scrub3", 24.0, 200.0),
+        ]
+        team = _synthetic(roster, slots)
         team.window = REBUILD
         side = Side(
             team=team,
-            sends=[real_asset("star", 6000, position="RB", age=31.0)],
+            sends=[player_asset(roster[0])],
             receives=[asset("2028 1st", 99999, position="PICK", is_pick=True)],
         )
         weights = WINDOW_WEIGHTS[REBUILD]
-        score_side(side, scratch_scored.settings.starter_slots, weights)
+        score_side(side, slots, weights)
+        assert side.lineup_gain < 0, "the lineup must genuinely get worse"
         assert side.gain > 0, "a rebuilder would normally love this"
-        assert side_accepts(side, weights) is True
+        assert side_accepts(side, weights) is False, "the gutting guard catches it"
         assert side_accepts(side, weights, win_now=True) is False
+
+    def test_a_lineup_change_inside_the_noise_is_still_acceptable(self):
+        """"Worse" means meaningfully worse. Rejecting a change of a percent or
+        two threw away most of the league's genuinely complementary pairs."""
+        from src.matchmaker import WIN_NOW_LINEUP_SLACK
+
+        slots = [RB, RB]
+        roster = [_vp("a", 24.0, 5000.0), _vp("b", 24.0, 4900.0)]
+        team = _synthetic(roster, slots)
+        side = Side(team=team, sends=[player_asset(roster[0])], receives=[])
+        side.lineup_gain = -0.01 * 5000
+        side.market_delta = 0.0
+        side.deployed_in = 0
+        side.gain = 1.0
+        weights = dict(WINDOW_WEIGHTS[CONTENDER])
+        assert 0.01 < WIN_NOW_LINEUP_SLACK
+        assert side_accepts(side, weights, win_now=True) is True
 
     def test_a_stubborn_manager_will_not_lose_the_value_exchange(self, scratch_scored):
         team = next(iter(scratch_scored.teams))

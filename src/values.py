@@ -450,11 +450,21 @@ class ValueBook:
         source_dir: Path | None = None,
         ttl_seconds: int = CACHE_TTL_SECONDS,
         pick_scale: float = 1.0,
+        elite_premium: float = 0.0,
+        youth_premium: float = 0.0,
         overrides: str | Path | dict[str, tuple[float, float | None]] | None = None,
     ) -> None:
         """
         ``source_dir`` reads three CSVs straight off disk with no network and no
         cache, which is how the offline tests run.
+
+        ``elite_premium`` and ``youth_premium`` are the acquisition premiums a
+        real trade market charges over a ranking sheet. A board is a list of
+        what players are worth; a market is what people will actually pay, and
+        the two differ in a consistent direction -- the best players and the
+        youngest players cost a little more than their rank implies, because
+        more managers want them and only one can have them. Both default to
+        zero, so the plain board is unchanged unless a league asks for it.
 
         ``pick_scale`` multiplies every pick value. DynastyProcess derives pick
         prices from expert consensus rank, which measures expected production;
@@ -483,6 +493,8 @@ class ValueBook:
 
         ids_rows = _rows(texts[IDS_FILE])
         self.pick_scale = float(pick_scale)
+        self.elite_premium = float(elite_premium)
+        self.youth_premium = float(youth_premium)
         self._fp_to_sleeper = self._load_crosswalk(ids_rows)
         self._fp_to_ktc = {
             (r.get("fantasypros_id") or "").strip(): (r.get("ktc_id") or "").strip()
@@ -504,6 +516,62 @@ class ValueBook:
             if fp_id and sleeper_id and sleeper_id not in ("NA", "0"):
                 out[fp_id] = sleeper_id
         return out
+
+    def _apply_market_premiums(self) -> None:
+        """Charge the premium the market charges, on top of the board.
+
+        A board lists what players are worth; a market is what people will
+        actually pay, and the two differ in a consistent direction. Two
+        multipliers, both deliberately small:
+
+        * elite -- scaled by how close a player sits to the top of the board,
+          squared so it stays near zero through the middle and only bites for
+          the genuinely scarce. A top-five asset is not merely worth his rank:
+          eleven other managers want him and only one can have him.
+        * youth -- scaled by how far a player sits below the peak age for his
+          position, so a 23-year-old receiver is dearer than a 28-year-old at
+          the same rank. This is the one that stops an ageing producer being
+          swapped straight across for an ascending one.
+
+        Applied before the ECR curve is fitted, so picks land on the same scale
+        as the players they will be traded against (gotcha 1).
+        """
+        if not (self.elite_premium or self.youth_premium):
+            return
+        peak = {"QB": 30.0, "RB": 25.0, "WR": 27.0, "TE": 27.0}
+        top_1qb = max((p.value_1qb for p in self._players), default=0.0) or 1.0
+        top_2qb = max((p.value_2qb for p in self._players), default=0.0) or 1.0
+
+        def priced(value: float, top: float, youth_mult: float) -> float:
+            share = (value / top) if top else 0.0
+            return value * (1.0 + self.elite_premium * share * share) * youth_mult
+
+        adjusted: list[PlayerValue] = []
+        for player in self._players:
+            reference = peak.get(player.position, 27.0)
+            youth = 0.0
+            if player.age is not None:
+                youth = max(0.0, reference - player.age) / reference
+            youth_mult = 1.0 + self.youth_premium * youth
+            adjusted.append(
+                PlayerValue(
+                    name=player.name, position=player.position, team=player.team,
+                    age=player.age, draft_year=player.draft_year,
+                    ecr_1qb=player.ecr_1qb, ecr_2qb=player.ecr_2qb,
+                    ecr_pos=player.ecr_pos,
+                    value_1qb=priced(player.value_1qb, top_1qb, youth_mult),
+                    value_2qb=priced(player.value_2qb, top_2qb, youth_mult),
+                    fp_id=player.fp_id, sleeper_id=player.sleeper_id,
+                )
+            )
+
+        self._players = adjusted
+        self._by_sleeper = {p.sleeper_id: p for p in adjusted if p.sleeper_id}
+        self._by_name = {}
+        for player in adjusted:
+            key = normalize_name(player.name)
+            if key and key not in self._by_name:
+                self._by_name[key] = player
 
     def _load_players(self, rows: list[dict[str, str]]) -> None:
         self._override_hits = 0
@@ -561,6 +629,8 @@ class ValueBook:
                 f"value override: {self._override_hits}/{len(self._players)} players "
                 f"repriced from {len(self._overrides)} supplied rows"
             )
+
+        self._apply_market_premiums()
 
         self._curve_1qb = EcrValueCurve(
             (p.ecr_1qb, p.value_1qb) for p in self._players if p.ecr_1qb is not None
