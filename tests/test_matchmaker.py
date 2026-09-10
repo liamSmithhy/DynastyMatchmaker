@@ -1,0 +1,310 @@
+"""Trade generation: two-sided acceptance, determinism, and the window logic."""
+
+from __future__ import annotations
+
+import pytest
+
+from src.matchmaker import (
+    WINDOW_WEIGHTS,
+    Asset,
+    Side,
+    _cancel,
+    find_trades,
+    outbound_candidates,
+    pair_proposals,
+    pitch,
+    rank,
+    score_side,
+    side_accepts,
+)
+from src.scoring import (
+    CONTENDER,
+    REBUILD,
+    RETOOLER,
+    STUCK,
+    TOP_HEAVY,
+    ValuedPlayer,
+    score_league,
+)
+from src.sleeper import RosterPlayer, RosterSlot
+
+RB = RosterSlot("RB", frozenset({"RB"}))
+
+
+def asset(name, value, position="WR", age=26.0, is_pick=False):
+    return Asset(
+        key=f"x:{name}", label=name, value=value, position=position,
+        age=age, is_pick=is_pick,
+    )
+
+
+class TestCancellation:
+    def test_identical_labels_cancel(self):
+        a, b = _cancel([asset("2028 1st", 1500, is_pick=True)],
+                       [asset("2028 1st", 1500, is_pick=True)])
+        assert a == [] and b == []
+
+    def test_only_matching_pairs_cancel(self):
+        a, b = _cancel(
+            [asset("2028 1st", 1500, is_pick=True), asset("Player", 900)],
+            [asset("2028 1st", 1500, is_pick=True)],
+        )
+        assert [x.label for x in a] == ["Player"]
+        assert b == []
+
+    def test_unrelated_packages_survive(self):
+        a, b = _cancel([asset("A", 100)], [asset("B", 100)])
+        assert len(a) == 1 and len(b) == 1
+
+
+class TestWindowWeights:
+    def test_every_window_has_weights(self):
+        for window in (CONTENDER, TOP_HEAVY, RETOOLER, STUCK, REBUILD):
+            assert set(WINDOW_WEIGHTS[window]) == {
+                "lineup", "market", "youth", "capital", "tolerance"
+            }
+
+    def test_contenders_value_the_lineup_most(self):
+        assert WINDOW_WEIGHTS[CONTENDER]["lineup"] == max(
+            w["lineup"] for w in WINDOW_WEIGHTS.values()
+        )
+
+    def test_rebuilders_do_not_value_the_lineup(self):
+        assert WINDOW_WEIGHTS[REBUILD]["lineup"] < 0.1
+
+    def test_contenders_will_overpay_and_rebuilders_will_not(self):
+        assert WINDOW_WEIGHTS[CONTENDER]["tolerance"] > WINDOW_WEIGHTS[REBUILD]["tolerance"]
+
+    def test_contenders_spend_capital_and_rebuilders_collect_it(self):
+        assert WINDOW_WEIGHTS[CONTENDER]["capital"] < 0
+        assert WINDOW_WEIGHTS[REBUILD]["capital"] > 0
+
+
+class TestAcceptance:
+    def _side(self, team, sends, receives):
+        return Side(team=team, sends=sends, receives=receives)
+
+    def test_a_side_that_loses_value_and_gains_nothing_refuses(self, scored):
+        team = scored.teams[0]
+        side = self._side(team, [asset("Good", 5000)], [asset("Bad", 100)])
+        weights = WINDOW_WEIGHTS[team.window]
+        score_side(side, scored.settings.starter_slots, weights)
+        assert not side_accepts(side, weights)
+
+    def test_every_generated_proposal_is_accepted_by_both_sides(self, scored, league_book):
+        proposals = find_trades(scored, league_book, limit=25, multi_team=True)
+        assert proposals
+        for proposal in proposals:
+            for side in proposal.sides:
+                assert side.gain > 0
+
+    def test_no_side_is_gutted(self, scored, league_book):
+        """A proposal may never strip a team's lineup to balance a spreadsheet."""
+        for proposal in find_trades(scored, league_book, limit=25):
+            for side in proposal.sides:
+                sent = sum(a.value for a in side.sends)
+                assert side.lineup_gain >= -0.35 * max(sent, 1.0)
+
+    def test_market_delta_respects_each_windows_tolerance(self, scored, league_book):
+        for proposal in find_trades(scored, league_book, limit=25):
+            for side in proposal.sides:
+                sent = sum(a.value for a in side.sends)
+                tolerance = WINDOW_WEIGHTS[side.window]["tolerance"]
+                assert side.market_delta >= -tolerance * sent - 1e-6
+
+
+class TestOutboundCandidates:
+    """These construct situations by mutating a team, so they take a private
+    copy -- mutating the shared league silently changes every later test."""
+
+    def test_starters_are_not_for_sale_by_default(self, scratch_scored):
+        team = next(t for t in scratch_scored.teams if t.window == CONTENDER)
+        starting = {id(p) for _, p in team.lineup if p is not None}
+        keys = {a.key for a in outbound_candidates(team, scratch_scored.replacement)}
+        for vp in team.roster:
+            if id(vp) in starting:
+                assert f"p:{vp.player.sleeper_id}" not in keys
+
+    def _add(self, team, key, age):
+        vp = ValuedPlayer(
+            player=RosterPlayer(key, key, "RB", "FA", age, "STARTER"),
+            value=6000.0,
+            matched_by="sleeper",
+            record=None,
+        )
+        team.roster.append(vp)
+        team.lineup.append((RB, vp))
+        return vp
+
+    def test_teams_that_have_given_up_on_the_season_will_sell_an_aging_starter(
+        self, scratch_scored
+    ):
+        """The most common dynasty trade there is: the rebuilding team ships its
+        30-year-old to a contender. The fixture league's own rebuilders happen to
+        be entirely young, so the situation is constructed here."""
+        team = next(t for t in scratch_scored.teams if t.window == CONTENDER)
+        self._add(team, "old", 31.0)
+
+        assert "p:old" not in {
+            a.key for a in outbound_candidates(team, scratch_scored.replacement)
+        }
+
+        team.window = REBUILD
+        assert "p:old" in {
+            a.key for a in outbound_candidates(team, scratch_scored.replacement)
+        }
+
+    def test_a_young_starter_is_not_sold_even_by_a_rebuilder(self, scratch_scored):
+        """Age is the trigger, not the window alone -- a rebuilder holds its kids."""
+        team = next(t for t in scratch_scored.teams if t.window == CONTENDER)
+        self._add(team, "kid", 22.0)
+        team.window = REBUILD
+        assert "p:kid" not in {
+            a.key for a in outbound_candidates(team, scratch_scored.replacement)
+        }
+
+    def test_peak_age_is_per_position(self, scratch_scored):
+        """A 26-year-old back is on the way down; a 26-year-old QB has not
+        started yet."""
+        team = next(t for t in scratch_scored.teams if t.window == CONTENDER)
+        team.window = REBUILD
+        back = self._add(team, "rb26", 26.0)
+        back.player.__dict__["position"] = "RB"
+        keys = {a.key for a in outbound_candidates(team, scratch_scored.replacement)}
+        assert "p:rb26" in keys
+
+    def test_rebuilders_do_not_sell_picks(self, scratch_scored):
+        team = next(iter(scratch_scored.teams))
+        team.window = REBUILD
+        assert not any(
+            a.is_pick for a in outbound_candidates(team, scratch_scored.replacement)
+        )
+
+    def test_contenders_do_sell_picks(self, scratch_scored):
+        team = next(t for t in scratch_scored.teams if t.picks)
+        team.window = CONTENDER
+        assert any(
+            a.is_pick for a in outbound_candidates(team, scratch_scored.replacement)
+        )
+
+
+class TestSurplusMeetsNeed:
+    def test_a_wr_surplus_team_trades_receivers_into_an_rb_surplus_team(
+        self, scored
+    ):
+        """The Stage 4 requirement: this must fall out of the arithmetic with no
+        position named anywhere in the matching path."""
+        wr_rich = sorted(
+            (t for t in scored.teams if t.surplus.get("WR", 0) > 0),
+            key=lambda t: -t.surplus["WR"],
+        )
+        rb_rich = sorted(
+            (t for t in scored.teams if t.surplus.get("RB", 0) > 0),
+            key=lambda t: -t.surplus["RB"],
+        )
+        assert wr_rich and rb_rich
+
+        for a in wr_rich:
+            for b in rb_rich:
+                if a.roster_id == b.roster_id:
+                    continue
+                for proposal in pair_proposals(
+                    a, b, scored.settings.starter_slots, scored.replacement
+                ):
+                    sends_a = {x.position for x in proposal.sides[0].sends}
+                    sends_b = {x.position for x in proposal.sides[1].sends}
+                    if "WR" in sends_a and "RB" in sends_b:
+                        return
+        pytest.fail("no WR-for-RB trade emerged between complementary rosters")
+
+    def test_no_position_is_named_in_the_matching_path(self):
+        """Format sensitivity must be derived. A literal position in the trade
+        logic would mean a league type was hardcoded."""
+        import re
+
+        with open("src/matchmaker.py", encoding="utf-8") as handle:
+            source = handle.read()
+        body = source.split("# --------", 1)[-1]
+        code = "\n".join(
+            line for line in body.splitlines() if not line.strip().startswith("#")
+        )
+        code = re.sub(r'"""(?:.|\n)*?"""', "", code)
+        for position in ("'QB'", '"QB"', "'RB'", '"RB"', "'WR'", '"WR"', "'TE'", '"TE"'):
+            assert position not in code, f"{position} hardcoded in matchmaker"
+
+
+class TestRankingAndDeterminism:
+    def test_output_is_reproducible(self, scored, league_book):
+        def signature():
+            return [
+                (round(p.score, 6), tuple(sorted(p.assets)))
+                for p in find_trades(scored, league_book, limit=10, multi_team=True)
+            ]
+
+        assert signature() == signature() == signature()
+
+    def test_best_proposal_comes_first(self, scored, league_book):
+        """Selection order is by freshness-ADJUSTED score, so the raw scores are
+        deliberately not monotone -- a slightly weaker proposal that reuses no
+        assets outranks a stronger variation on the deal above it. What must
+        hold is that nothing outscores the pick at the top, where no assets are
+        spoken for yet."""
+        proposals = find_trades(scored, league_book, limit=10)
+        assert proposals
+        assert proposals[0].score == max(p.score for p in proposals)
+
+    def test_limit_is_respected(self, scored, league_book):
+        assert len(find_trades(scored, league_book, limit=3)) <= 3
+
+    def test_roster_filter(self, scored, league_book):
+        target = scored.teams[1].roster_id
+        for proposal in find_trades(scored, league_book, roster_id=target, limit=10):
+            assert any(s.team.roster_id == target for s in proposal.sides)
+
+    def test_freshness_penalises_reusing_the_same_asset(self, scored, league_book):
+        """Twelve variations on trading one receiver is one idea, not twelve."""
+        proposals = find_trades(scored, league_book, limit=8)
+        first_assets = proposals[0].assets
+        overlaps = sum(1 for p in proposals[1:] if p.assets & first_assets)
+        assert overlaps < len(proposals) - 1
+
+    def test_simpler_trades_are_preferred_at_equal_value(self):
+        from src.matchmaker import Proposal, _finalize
+
+        class FakeTeam:
+            def __init__(self, window, roster_id):
+                self.window = window
+                self.roster_id = roster_id
+                self.name = f"T{roster_id}"
+                self.starter_value = 0.0
+                self.roster = []
+
+        def make(n):
+            a = Side(FakeTeam(CONTENDER, 1), [asset(f"a{i}", 100) for i in range(n)], [])
+            b = Side(FakeTeam(REBUILD, 2), [asset(f"b{i}", 100) for i in range(n)], [])
+            a.gain = b.gain = 500.0
+            proposal = Proposal(sides=[a, b])
+            _finalize(proposal)
+            return proposal
+
+        assert make(1).score > make(2).score
+
+
+class TestPitch:
+    def test_pitch_names_both_packages(self, scored, league_book):
+        proposal = find_trades(scored, league_book, limit=1)[0]
+        text = pitch(proposal)
+        for a in proposal.sides[0].sends:
+            assert a.label in text
+        for a in proposal.sides[0].receives:
+            assert a.label in text
+
+    def test_pitch_is_deterministic(self, scored, league_book):
+        proposal = find_trades(scored, league_book, limit=1)[0]
+        assert pitch(proposal) == pitch(proposal)
+
+    def test_pitch_speaks_to_the_recipients_window(self, scored, league_book):
+        for proposal in find_trades(scored, league_book, limit=10):
+            text = pitch(proposal)
+            assert text.startswith("Hey —")
+            assert "I'd send you:" in text

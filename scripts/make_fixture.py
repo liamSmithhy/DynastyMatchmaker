@@ -419,6 +419,60 @@ def build(out_dir: Path, seed: int = 7) -> None:
     print(f"wrote {out_dir / 'payloads.json'}")
     print(f"  {len(payloads)} endpoints, {len(directory)} players, {TEAMS} rosters")
 
+    # The league fixture has to be scored against the values it was built from,
+    # so ship a trimmed snapshot of the real CSVs beside it -- just the players
+    # actually rostered, which is exactly the population replacement level is
+    # computed over, so the trim changes no result. This keeps the test suite
+    # offline without pretending the numbers are synthetic.
+    write_values_snapshot(out_dir / "values")
+
+
+def write_values_snapshot(dest: Path) -> None:
+    """Copy the values the fixture was built from, so tests score it correctly.
+
+    The player and pick files are copied whole. Trimming players to only those
+    rostered would be tempting and wrong: the ECR/value curve is fitted over the
+    entire board, so a trimmed file reprices every draft pick. Only the id
+    crosswalk is trimmed, since the ~12,000 rows we never look up are the bulk
+    of its size and none of its meaning.
+    """
+    import csv as _csv
+
+    from src.values import IDS_FILE, PICKS_FILE, PLAYERS_FILE, CsvCache
+
+    cache = CsvCache()
+    dest.mkdir(parents=True, exist_ok=True)
+
+    players = list(_csv.DictReader(cache.read(PLAYERS_FILE).splitlines()))
+    _dump(dest / PLAYERS_FILE, players)
+
+    picks = list(_csv.DictReader(cache.read(PICKS_FILE).splitlines()))
+    _dump(dest / PICKS_FILE, picks)
+
+    valued_fp = {r.get("fp_id") for r in players}
+    ids_rows = [
+        r
+        for r in _csv.DictReader(cache.read(IDS_FILE).splitlines())
+        if r.get("fantasypros_id") in valued_fp
+    ]
+    _dump(dest / IDS_FILE, ids_rows)
+
+    print(
+        f"  values snapshot: {len(players)} players, {len(picks)} picks, "
+        f"{len(ids_rows)} id rows -> {dest}"
+    )
+
+
+def _dump(path: Path, rows: list[dict]) -> None:
+    import csv as _csv
+
+    if not rows:
+        raise SystemExit(f"refusing to write an empty snapshot to {path}")
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = _csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()

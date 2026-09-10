@@ -39,6 +39,11 @@ IDS_FILE = "db_playerids.csv"
 CACHE_TTL_SECONDS = 12 * 60 * 60
 
 _SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
+# Apostrophes and periods are dropped outright: one source writes "Ja'Marr" and
+# another may write "JaMarr", and only deletion makes those agree. Everything
+# else (hyphens especially) becomes a space, because "Smith-Njigba" and
+# "Smith Njigba" both occur in the wild.
+_DROP = re.compile(r"[.'’ʼ`]")
 _PUNCT = re.compile(r"[^\w\s]")
 _WS = re.compile(r"\s+")
 
@@ -59,7 +64,7 @@ def normalize_name(name: str) -> str:
         return ""
     decomposed = unicodedata.normalize("NFKD", name)
     ascii_only = "".join(c for c in decomposed if not unicodedata.combining(c))
-    cleaned = _PUNCT.sub(" ", ascii_only).lower()
+    cleaned = _PUNCT.sub(" ", _DROP.sub("", ascii_only)).lower()
     tokens = _WS.sub(" ", cleaned).strip().split(" ")
     while len(tokens) > 2 and tokens[-1] in _SUFFIXES:
         tokens.pop()
