@@ -51,9 +51,11 @@ def _client(args: argparse.Namespace) -> SleeperClient:
 
 def _book(args: argparse.Namespace) -> ValueBook:
     values_dir = getattr(args, "values_dir", None)
+    overrides = getattr(args, "values_csv", None)
     if values_dir:
-        return ValueBook(source_dir=Path(values_dir))
-    book = ValueBook(offline=args.offline)
+        book = ValueBook(source_dir=Path(values_dir), overrides=overrides)
+    else:
+        book = ValueBook(offline=args.offline, overrides=overrides)
     for note in book.notes:
         print(f"[values] {note}", file=sys.stderr)
     return book
@@ -516,6 +518,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fixture", help="read Sleeper payloads from a JSON file")
     parser.add_argument(
         "--values-dir", dest="values_dir", help="read values from local CSVs"
+    )
+    parser.add_argument(
+        "--values-csv", dest="values_csv", metavar="PATH",
+        help="reprice players from an external sheet (KeepTradeCut export etc.)",
     )
     parser.add_argument(
         "--weight", action="append", metavar="POS=FACTOR", default=[],

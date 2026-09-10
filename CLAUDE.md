@@ -134,10 +134,16 @@ with no account and no network. Use it to show what the tool does.
 `python3 -m src.cli report <username>` writes a self-contained HTML page: the
 board and the ranked proposals, with a copyable message from either side.
 
-Two per-league knobs handle a market the consensus board does not share:
-`--exclude-position QB` keeps a position out of every trade, and
-`--weight QB=0.3` scales a position's value. FMB uses the former — that league
-does not pay for quarterbacks. Neither names a position in the code. The demo is the same
+Three per-league knobs handle a market the consensus board does not share:
+`--exclude-position QB` keeps a position out of every trade, `--weight QB=0.3`
+scales a position's value, and `--values-csv sheet.csv` reprices players from an
+outside board. FMB uses the first — that league does not pay for quarterbacks.
+Neither of the first two names a position in the code.
+
+`--values-csv` is how KeepTradeCut gets used: KTC is trade-sourced rather than
+ECR-derived, publishes no open feed, and was unreachable from the build sandbox,
+so the tool takes an export instead. Repricing players refits the ECR/value
+curve, so picks move onto the same scale automatically (gotcha 1). The demo is the same
 renderer pointed at sample data, so there is no demo codepath to drift from what
 a real league produces. `src/report.py` owns it; `snapshot` captures a league to
 disk for offline replay.

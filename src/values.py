@@ -199,6 +199,73 @@ class CsvCache:
             return resp.read().decode("utf-8")
 
 
+# Column aliases for an external value sheet. KeepTradeCut, FantasyCalc and a
+# hand-kept spreadsheet all name these differently; none of them is wrong.
+_NAME_COLS = ("player", "name", "player_name", "playername", "full_name")
+_SLEEPER_COLS = ("sleeper_id", "sleeperid", "sleeper")
+_ONE_QB_COLS = ("value_1qb", "value", "ktc_value", "1qb", "value1qb", "oneqb_value")
+_SUPERFLEX_COLS = ("value_2qb", "sf_value", "superflex", "value_sf", "2qb", "sfvalue")
+
+
+def _pick_column(fieldnames: Sequence[str], candidates: Sequence[str]) -> str | None:
+    lowered = {f.strip().lower().replace(" ", "_"): f for f in fieldnames if f}
+    for candidate in candidates:
+        if candidate in lowered:
+            return lowered[candidate]
+    return None
+
+
+def load_value_overrides(path: str | Path) -> dict[str, tuple[float, float | None]]:
+    """Read an external value sheet: {key: (value_1qb, value_2qb or None)}.
+
+    Keys are ``sleeper:<id>`` where the sheet supplies one and a normalized name
+    otherwise, so a sheet with ids joins exactly and a sheet without still joins
+    on names. Column names are sniffed rather than mandated -- a KeepTradeCut
+    export, a FantasyCalc download and a hand-kept spreadsheet all label the same
+    two numbers differently.
+    """
+    text = Path(path).read_text(encoding="utf-8")
+    reader = csv.DictReader(text.splitlines())
+    fields = reader.fieldnames or []
+
+    name_col = _pick_column(fields, _NAME_COLS)
+    sleeper_col = _pick_column(fields, _SLEEPER_COLS)
+    one_col = _pick_column(fields, _ONE_QB_COLS)
+    sf_col = _pick_column(fields, _SUPERFLEX_COLS)
+
+    if one_col is None and sf_col is None:
+        raise ValueError(
+            f"{path}: no value column found. Expected one of "
+            f"{', '.join(_ONE_QB_COLS + _SUPERFLEX_COLS)}; saw {fields}"
+        )
+    if name_col is None and sleeper_col is None:
+        raise ValueError(
+            f"{path}: no player column found. Expected one of "
+            f"{', '.join(_NAME_COLS + _SLEEPER_COLS)}; saw {fields}"
+        )
+
+    out: dict[str, tuple[float, float | None]] = {}
+    for row in reader:
+        one = _num(row.get(one_col)) if one_col else None
+        sf = _num(row.get(sf_col)) if sf_col else None
+        if one is None and sf is None:
+            continue
+        # A single-column sheet sets both formats; the caller picks which to read.
+        base = one if one is not None else sf
+        keys: list[str] = []
+        if sleeper_col:
+            sid = (row.get(sleeper_col) or "").strip()
+            if sid and sid not in ("NA", "0"):
+                keys.append(f"sleeper:{sid}")
+        if name_col and not keys:
+            key = normalize_name(row.get(name_col) or "")
+            if key:
+                keys.append(key)
+        for key in keys:
+            out[key] = (float(base), sf)
+    return out
+
+
 def _rows(text: str) -> list[dict[str, str]]:
     return list(csv.DictReader(text.splitlines()))
 
@@ -337,6 +404,7 @@ class ValueBook:
         offline: bool = False,
         source_dir: Path | None = None,
         ttl_seconds: int = CACHE_TTL_SECONDS,
+        overrides: str | Path | dict[str, tuple[float, float | None]] | None = None,
     ) -> None:
         """
         ``source_dir`` reads three CSVs straight off disk with no network and no
@@ -353,6 +421,13 @@ class ValueBook:
             cache = CsvCache(cache_dir=cache_dir, offline=offline, ttl_seconds=ttl_seconds)
             texts = {name: cache.read(name) for name in (PLAYERS_FILE, PICKS_FILE, IDS_FILE)}
             self.notes = cache.notes
+
+        if overrides is None:
+            self._overrides: dict[str, tuple[float, float | None]] = {}
+        elif isinstance(overrides, dict):
+            self._overrides = dict(overrides)
+        else:
+            self._overrides = load_value_overrides(overrides)
 
         self._fp_to_sleeper = self._load_crosswalk(_rows(texts[IDS_FILE]))
         self._load_players(_rows(texts[PLAYERS_FILE]))
@@ -371,6 +446,7 @@ class ValueBook:
         return out
 
     def _load_players(self, rows: list[dict[str, str]]) -> None:
+        self._override_hits = 0
         self._by_sleeper: dict[str, PlayerValue] = {}
         self._by_name: dict[str, PlayerValue] = {}
         self._players: list[PlayerValue] = []
@@ -380,8 +456,22 @@ class ValueBook:
             value_1qb = _num(row.get("value_1qb")) or 0.0
             value_2qb = _num(row.get("value_2qb")) or 0.0
             draft_year = _num(row.get("draft_year"))
+            name = (row.get("player") or "").strip()
+            sleeper_id = self._fp_to_sleeper.get(fp_id)
+            if self._overrides:
+                # An external sheet replaces the value but keeps the ECR, so the
+                # pick curve refits to the new scale and picks stay comparable
+                # to players -- which is the whole point of gotcha 1.
+                hit = self._overrides.get(f"sleeper:{sleeper_id}") if sleeper_id else None
+                if hit is None:
+                    hit = self._overrides.get(normalize_name(name))
+                if hit is not None:
+                    value_1qb = hit[0]
+                    value_2qb = hit[1] if hit[1] is not None else hit[0]
+                    self._override_hits += 1
+
             player = PlayerValue(
-                name=(row.get("player") or "").strip(),
+                name=name,
                 position=(row.get("pos") or "").strip().upper(),
                 team=(row.get("team") or "").strip().upper(),
                 age=_num(row.get("age")),
@@ -392,7 +482,7 @@ class ValueBook:
                 value_1qb=value_1qb,
                 value_2qb=value_2qb,
                 fp_id=fp_id,
-                sleeper_id=self._fp_to_sleeper.get(fp_id),
+                sleeper_id=sleeper_id,
             )
             self._players.append(player)
             if player.sleeper_id:
@@ -402,6 +492,12 @@ class ValueBook:
             # players sharing a normalized name keeps the key.
             if key and key not in self._by_name:
                 self._by_name[key] = player
+
+        if self._overrides:
+            self.notes.append(
+                f"value override: {self._override_hits}/{len(self._players)} players "
+                f"repriced from {len(self._overrides)} supplied rows"
+            )
 
         self._curve_1qb = EcrValueCurve(
             (p.ecr_1qb, p.value_1qb) for p in self._players if p.ecr_1qb is not None
@@ -677,6 +773,7 @@ __all__ = [
     "EcrValueCurve",
     "CsvCache",
     "normalize_name",
+    "load_value_overrides",
     "normalize_pick_label",
     "tier_for_slot",
     "BASE_URL",

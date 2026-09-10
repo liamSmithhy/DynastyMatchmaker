@@ -25,7 +25,7 @@ standard library.
 ```bash
 git clone <this repo>
 cd DynastyMatchmaker
-python3 -m pytest tests/ -q          # 196 tests, no network required
+python3 -m pytest tests/ -q          # 206 tests, no network required
 ```
 
 Data is fetched on first use and cached to `~/.cache/dynasty-matchmaker`
@@ -54,16 +54,39 @@ python3 -m src.cli report --sample                    # the same page, sample le
 One self-contained HTML file: the detected format, the board, and the ranked
 proposals with a copyable message from either side.
 
-Two knobs exist for leagues whose market differs from the consensus board:
+Three knobs exist for leagues whose market differs from the consensus board:
 
 ```bash
 --exclude-position QB      # keep a position out of every trade
 --weight QB=0.3            # scale a position's value (repeatable, any position)
+--values-csv ktc.csv       # reprice players from an outside sheet
 ```
 
 A 1QB league where nobody will pay for a quarterback is the common case; the
 same mechanism raises tight ends in a TE-premium league. Neither names a
 position in the code — both are supplied per league.
+
+### Using KeepTradeCut (or any other board)
+
+DynastyProcess derives its numbers from expert consensus rank. KeepTradeCut
+derives its from crowd-sourced trade decisions, which is a genuinely different
+signal. KTC publishes no open feed, so export their board and point at it:
+
+```bash
+python3 -m src.cli --values-csv ktc.csv report <username>
+```
+
+Column names are sniffed, not mandated — `player`/`name`/`full_name` for the
+player, `value`/`ktc_value`/`value_1qb` for the number, and
+`sf_value`/`value_2qb`/`superflex` for the superflex column if there is one. A
+`sleeper_id` column is used in preference to the name when present, because an
+id join is exact and a name join is not.
+
+Repricing players also reprices **picks**: the ECR→value curve is refitted from
+the new player board, so picks and players stay on one scale. Without that, a
+KTC-valued roster would be traded against DynastyProcess-valued picks and every
+balance check would be wrong. Any player the sheet does not mention keeps its
+DynastyProcess value, and the run reports how many were matched.
 
 There is no separate demo codepath — the demo *is* this renderer pointed at the
 sample data, so a real league produces exactly the page the demo shows.
