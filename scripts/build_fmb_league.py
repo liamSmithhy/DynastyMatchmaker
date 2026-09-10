@@ -30,6 +30,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.values import CsvCache, IDS_FILE, normalize_name  # noqa: E402
 
 LEAGUE_ID = "1126400000000000001"
+
+# How this league should be scored. Calibrated against the commissioner's own
+# 1-12 ranking of the twelve teams, which is the only ground truth available:
+#
+#   --pick-scale 3.5      DynastyProcess prices picks off expected production;
+#                         this league trades them at the crowd price. 3.5x cuts
+#                         the rank disagreement from 24 places to 12 and puts
+#                         league-wide capital at 36% of total value, which is
+#                         the "roughly a third" pillar 3 asks for. The optimum
+#                         is flat from 3.5 to 4.0, so it is not knife-edge.
+#   --win-now             every manager believes they can win, so no proposal
+#                         may hand anyone a worse starting lineup.
+#   --exclude-position QB nobody here pays for quarterbacks.
+#
+# One parameter fitted to twelve ranks is calibration, not proof. Re-fit it if
+# the commissioner's ranking changes.
+RECOMMENDED_FLAGS = "--pick-scale 3.5 --win-now --exclude-position QB"
 SEASON = "2026"
 TEAMS = 12
 DRAFT_ROUNDS = 4

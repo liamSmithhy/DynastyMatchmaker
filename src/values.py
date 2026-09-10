@@ -449,11 +449,18 @@ class ValueBook:
         offline: bool = False,
         source_dir: Path | None = None,
         ttl_seconds: int = CACHE_TTL_SECONDS,
+        pick_scale: float = 1.0,
         overrides: str | Path | dict[str, tuple[float, float | None]] | None = None,
     ) -> None:
         """
         ``source_dir`` reads three CSVs straight off disk with no network and no
         cache, which is how the offline tests run.
+
+        ``pick_scale`` multiplies every pick value. DynastyProcess derives pick
+        prices from expert consensus rank, which measures expected production;
+        the crowd-sourced boards price the same picks far higher because a
+        rookie pick is also a lottery ticket, and leagues trade them at the
+        crowd price. One number, applied to every pick, calibrated per league.
         """
         if source_dir is not None:
             source = Path(source_dir)
@@ -475,6 +482,7 @@ class ValueBook:
             self._overrides = load_value_overrides(overrides)
 
         ids_rows = _rows(texts[IDS_FILE])
+        self.pick_scale = float(pick_scale)
         self._fp_to_sleeper = self._load_crosswalk(ids_rows)
         self._fp_to_ktc = {
             (r.get("fantasypros_id") or "").strip(): (r.get("ktc_id") or "").strip()
@@ -710,7 +718,7 @@ class ValueBook:
             )
             return PickValue(
                 label=label, season=season, round=rnd, slot=slot,
-                value=curve.value_at(ecr), ecr=ecr, exact=True,
+                value=curve.value_at(ecr) * self.pick_scale, ecr=ecr, exact=True,
             )
 
         direct = self._pick_ecr.get(key)
@@ -720,7 +728,7 @@ class ValueBook:
                 season=season or 0,
                 round=rnd or 0,
                 slot=slot,
-                value=curve.value_at(direct[idx]),
+                value=curve.value_at(direct[idx]) * self.pick_scale,
                 ecr=direct[idx],
                 exact=exact,
             )
@@ -732,7 +740,7 @@ class ValueBook:
         if ecr is None:
             return None
 
-        value = curve.value_at(ecr)
+        value = curve.value_at(ecr) * self.pick_scale
 
         # Seasons beyond the file get discounted per extra year of distance.
         if self._pick_seasons and season > self._pick_seasons[-1]:

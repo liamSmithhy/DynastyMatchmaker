@@ -304,3 +304,30 @@ class TestTradeSourcedOverrides:
         path = self._write(tmp_path, "player,value\nAlpha Receiver,4321\n")
         book = ValueBook(source_dir=VALUES_DIR, overrides=path)
         assert any("repriced" in note for note in book.notes)
+
+
+class TestPickScale:
+    """Calibrating pick prices to a league's market (pillar 3)."""
+
+    def test_scales_every_pick_by_the_same_factor(self):
+        base = ValueBook(source_dir=VALUES_DIR)
+        scaled = ValueBook(source_dir=VALUES_DIR, pick_scale=3.5)
+        for label in ("2026 Pick 1.01", "2027 Mid 1st", "2028 3rd"):
+            assert scaled.pick_value(label) == pytest.approx(
+                base.pick_value(label) * 3.5
+            )
+
+    def test_players_are_untouched(self):
+        base = ValueBook(source_dir=VALUES_DIR)
+        scaled = ValueBook(source_dir=VALUES_DIR, pick_scale=3.5)
+        assert scaled.value("Alpha Receiver") == base.value("Alpha Receiver")
+
+    def test_ordering_is_preserved(self):
+        scaled = ValueBook(source_dir=VALUES_DIR, pick_scale=2.0)
+        values = [scaled.pick_value(f"2026 Pick 1.{s:02d}") for s in range(1, 13)]
+        assert values == sorted(values, reverse=True)
+
+    def test_default_changes_nothing(self):
+        assert ValueBook(source_dir=VALUES_DIR, pick_scale=1.0).pick_value(
+            "2027 Mid 1st"
+        ) == ValueBook(source_dir=VALUES_DIR).pick_value("2027 Mid 1st")

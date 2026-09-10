@@ -60,6 +60,26 @@ PICK_WILLINGNESS = {
 
 AGE_REFERENCE = 27.0  # youth delta is measured against a neutral dynasty age
 
+# How far to drag every window toward CONTENDER when a league is told that all
+# twelve managers believe they can win. Not 1.0: at full blend every team wants
+# exactly the same thing and no trade has a reason to exist, which is the
+# opposite of the truth. Teams still differ in what their roster NEEDS; they
+# just stop being willing to sell this season to fix it.
+WIN_NOW_BLEND = 0.6
+
+
+def win_now_weights(window: str, blend: float = WIN_NOW_BLEND) -> dict[str, float]:
+    """A window's weights, pulled toward the contender profile.
+
+    In a league where nobody accepts that they are rebuilding, the rebuilder's
+    profile is fiction: real managers there will not trade a starter for a 2028
+    pick no matter what the roster says. Blending toward CONTENDER keeps the
+    diagnosis (the roster IS old, the roster IS mortgaged) while making the
+    acceptance test match how the room actually behaves.
+    """
+    base, target = WINDOW_WEIGHTS[window], WINDOW_WEIGHTS[CONTENDER]
+    return {k: base[k] + (target[k] - base[k]) * blend for k in base}
+
 MAX_PER_SIDE = 2
 SIMPLICITY_PENALTY = 0.87  # per asset beyond the first on each side
 
@@ -70,6 +90,12 @@ SIMPLICITY_PENALTY = 0.87  # per asset beyond the first on each side
 REPEAT_PENALTY = 0.55  # per asset already spoken for by a better proposal
 PAIR_PENALTY = 0.45    # per earlier proposal between these same two teams
 TEAM_PENALTY = 0.85    # per team already featured anywhere in the list
+
+# A hard cap on how many times one pairing may appear. The penalties above are
+# multiplicative and lose their grip when the valid set is small -- which is
+# exactly what happens once every manager refuses a worse lineup, since few
+# pairs clear at all and one good pairing can otherwise take most of the list.
+MAX_PER_PAIR = 2
 
 
 # --------------------------------------------------------------------------
@@ -289,7 +315,12 @@ def score_side(
     )
 
 
-def side_accepts(side: Side, weights: dict[str, float]) -> bool:
+def side_accepts(
+    side: Side,
+    weights: dict[str, float],
+    win_now: bool = False,
+    stubborn: bool = False,
+) -> bool:
     """Would this manager say yes?
 
     Four independent hurdles: the deal must be a net gain in that team's own
@@ -316,6 +347,17 @@ def side_accepts(side: Side, weights: dict[str, float]) -> bool:
     # a second quarterback in a 1QB league, bought at market.
     incoming_players = [a for a in side.receives if not a.is_pick]
     if incoming_players and side.deployed_in == 0 and side.market_delta < 0:
+        return False
+
+    # A manager who believes he is contending does not accept a worse lineup,
+    # whatever the return. This is the single rule that stops the generator
+    # proposing sell-offs into a room where nobody is selling.
+    if win_now and side.lineup_gain <= 0:
+        return False
+
+    # And a stubborn one does not accept losing the value exchange either --
+    # he has to be able to tell himself he won the trade.
+    if stubborn and side.market_delta < 0:
         return False
 
     return True
@@ -367,6 +409,8 @@ def pair_proposals(
     max_per_side: int = MAX_PER_SIDE,
     beam: int = 6,
     exclude_positions: frozenset[str] = frozenset(),
+    win_now: bool = False,
+    stubborn: frozenset[str] = frozenset(),
 ) -> list[Proposal]:
     """Every valid trade between two teams, cheapest packages first."""
     a_out = outbound_candidates(a, replacement, exclude_positions)
@@ -388,8 +432,9 @@ def pair_proposals(
     if not a_useful or not b_useful:
         return []
 
-    wa = WINDOW_WEIGHTS[a.window]
-    wb = WINDOW_WEIGHTS[b.window]
+    wa = win_now_weights(a.window) if win_now else WINDOW_WEIGHTS[a.window]
+    wb = win_now_weights(b.window) if win_now else WINDOW_WEIGHTS[b.window]
+    sa, sb = a.name in stubborn, b.name in stubborn
     out: list[Proposal] = []
     # Cancellation means several raw package pairs collapse to the same net
     # trade; keep one of each.
@@ -422,7 +467,8 @@ def pair_proposals(
             side_b = Side(team=b, sends=list(b_pkg), receives=list(a_pkg))
             score_side(side_a, slots, wa)
             score_side(side_b, slots, wb)
-            if not (side_accepts(side_a, wa) and side_accepts(side_b, wb)):
+            if not (side_accepts(side_a, wa, win_now, sa)
+                    and side_accepts(side_b, wb, win_now, sb)):
                 continue
 
             proposal = Proposal(sides=[side_a, side_b])
@@ -443,6 +489,8 @@ def ring_proposals(
     beam: int = 6,
     width: int = 4,
     exclude_positions: frozenset[str] = frozenset(),
+    win_now: bool = False,
+    stubborn: frozenset[str] = frozenset(),
 ) -> list[Proposal]:
     """Three-team cycles: A ships to B, B to C, C to A.
 
@@ -494,9 +542,12 @@ def ring_proposals(
             ]
             ok = True
             for side in sides:
-                weights = WINDOW_WEIGHTS[side.window]
+                weights = (win_now_weights(side.window) if win_now
+                           else WINDOW_WEIGHTS[side.window])
                 score_side(side, slots, weights)
-                if not side_accepts(side, weights):
+                if not side_accepts(
+                    side, weights, win_now, side.team.name in stubborn
+                ):
                     ok = False
                     break
             if not ok:
@@ -571,10 +622,12 @@ def rank(proposals: Sequence[Proposal], limit: int) -> list[Proposal]:
     teams: set[int] = set()
 
     while remaining and len(chosen) < limit:
-        best_idx, best_adj = 0, float("-inf")
+        best_idx, best_adj = -1, float("-inf")
         for i, proposal in enumerate(remaining):
-            overlap = len(proposal.assets & used)
             repeats = pairs.get(_pair_key(proposal), 0)
+            if repeats >= MAX_PER_PAIR:
+                continue
+            overlap = len(proposal.assets & used)
             seen = sum(1 for s in proposal.sides if s.team.roster_id in teams)
             adjusted = (
                 proposal.score
@@ -584,6 +637,10 @@ def rank(proposals: Sequence[Proposal], limit: int) -> list[Proposal]:
             )
             if adjusted > best_adj:
                 best_idx, best_adj = i, adjusted
+        if best_idx < 0:
+            # Every remaining proposal is a third helping of a pairing already
+            # shown. A shorter list of distinct ideas beats a padded one.
+            break
         picked = remaining.pop(best_idx)
         chosen.append(picked)
         used |= picked.assets
@@ -605,6 +662,8 @@ def find_trades(
     multi_team: bool = False,
     max_per_side: int = MAX_PER_SIDE,
     exclude_positions: Iterable[str] = (),
+    win_now: bool = False,
+    stubborn: Iterable[str] = (),
 ) -> list[Proposal]:
     """Rank the trades this league should make.
 
@@ -615,6 +674,7 @@ def find_trades(
     fewer.
     """
     excluded = frozenset(p.strip().upper() for p in exclude_positions if p.strip())
+    stuck_on = frozenset(t.strip() for t in stubborn if t.strip())
     slots = scored.settings.starter_slots
     replacement = scored.replacement
     teams = sorted(scored.teams, key=lambda t: t.roster_id)
@@ -625,11 +685,14 @@ def find_trades(
             continue
         proposals += pair_proposals(
             a, b, slots, replacement, max_per_side=max_per_side,
-            exclude_positions=excluded,
+            exclude_positions=excluded, win_now=win_now, stubborn=stuck_on,
         )
 
     if multi_team:
-        rings = ring_proposals(teams, slots, replacement, exclude_positions=excluded)
+        rings = ring_proposals(
+            teams, slots, replacement, exclude_positions=excluded,
+            win_now=win_now, stubborn=stuck_on,
+        )
         if roster_id is not None:
             rings = [
                 p for p in rings
@@ -734,4 +797,6 @@ __all__ = [
     "outbound_candidates",
     "lineup_with",
     "WINDOW_WEIGHTS",
+    "win_now_weights",
+    "WIN_NOW_BLEND",
 ]

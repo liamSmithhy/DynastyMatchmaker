@@ -25,7 +25,7 @@ standard library.
 ```bash
 git clone <this repo>
 cd DynastyMatchmaker
-python3 -m pytest tests/ -q          # 206 tests, no network required
+python3 -m pytest tests/ -q          # 226 tests, no network required
 ```
 
 Data is fetched on first use and cached to `~/.cache/dynasty-matchmaker`
@@ -54,13 +54,28 @@ python3 -m src.cli report --sample                    # the same page, sample le
 One self-contained HTML file: the detected format, the board, and the ranked
 proposals with a copyable message from either side.
 
-Three knobs exist for leagues whose market differs from the consensus board:
+Knobs for leagues whose market differs from the consensus board:
 
 ```bash
 --exclude-position QB      # keep a position out of every trade
 --weight QB=0.3            # scale a position's value (repeatable, any position)
 --values-csv ktc.csv       # reprice players from an outside sheet
+--pick-scale 3.5           # calibrate pick prices to what the league pays
+--win-now                  # nobody accepts a worse lineup: everyone thinks they can win
+--stubborn "Team Name"     # this manager must also win the value exchange
 ```
+
+`--pick-scale` matters more than it looks. DynastyProcess prices picks off
+expected production; leagues trade them at the crowd price, which is several
+times higher. Calibrated against one real league's own team ranking, 3.5x cut
+the rank disagreement in half and put league-wide capital at 36% of total value
+— the "roughly a third" pillar 3 asks for.
+
+`--win-now` is the posture knob. The window still diagnoses the roster
+honestly, but acceptance changes: a manager who thinks he is contending does
+not take a worse starting lineup no matter what the return is. Turning it on
+usually cuts the proposal count sharply, which is the point — those were the
+trades that were never going to be accepted.
 
 A 1QB league where nobody will pay for a quarterback is the common case; the
 same mechanism raises tight ends in a TE-premium league. Neither names a

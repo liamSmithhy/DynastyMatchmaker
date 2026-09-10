@@ -53,9 +53,11 @@ def _book(args: argparse.Namespace) -> ValueBook:
     values_dir = getattr(args, "values_dir", None)
     overrides = getattr(args, "values_csv", None)
     if values_dir:
-        book = ValueBook(source_dir=Path(values_dir), overrides=overrides)
+        book = ValueBook(source_dir=Path(values_dir), overrides=overrides,
+                     pick_scale=getattr(args, 'pick_scale', 1.0) or 1.0)
     else:
-        book = ValueBook(offline=args.offline, overrides=overrides)
+        book = ValueBook(offline=args.offline, overrides=overrides,
+                         pick_scale=getattr(args, 'pick_scale', 1.0) or 1.0)
     for note in book.notes:
         print(f"[values] {note}", file=sys.stderr)
     return book
@@ -356,6 +358,8 @@ def cmd_report(args: argparse.Namespace) -> int:
     data = build_report_data(
         scored, book, focus_roster=focus, source=source, limit=args.limit,
         title=args.title, exclude_positions=_excluded(args),
+        win_now=getattr(args, 'win_now', False),
+        stubborn=getattr(args, 'stubborn', []) or [],
     )
     out = write_report(data, args.out)
 
@@ -493,6 +497,8 @@ def cmd_trades(args: argparse.Namespace) -> int:
         limit=args.limit,
         multi_team=args.multi_team,
         exclude_positions=_excluded(args),
+        win_now=getattr(args, "win_now", False),
+        stubborn=getattr(args, "stubborn", []) or [],
     )
     if not proposals:
         print("no trades cleared both sides. Nobody's surplus lines up with "
@@ -531,6 +537,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--exclude-position", action="append", dest="exclude_position", default=[],
         metavar="POS", help="keep a position out of every trade (repeatable)",
     )
+    parser.add_argument("--pick-scale", dest="pick_scale", type=float, default=1.0,
+                        help="multiply every pick value (league calibration)")
+    parser.add_argument("--win-now", dest="win_now", action="store_true",
+                        help="every manager believes they can win: nobody accepts a worse lineup")
+    parser.add_argument("--stubborn", action="append", default=[], metavar="TEAM",
+                        help="this manager must also win the value exchange (repeatable)")
     parser.add_argument("--offline", action="store_true", help="use cached data only")
     parser.add_argument("--season", type=int, help="season for league lookup")
     sub = parser.add_subparsers(dest="command", required=True)

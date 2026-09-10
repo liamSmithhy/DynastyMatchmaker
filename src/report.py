@@ -129,6 +129,8 @@ def build_report_data(
     limit: int = 8,
     title: str | None = None,
     exclude_positions: Any = (),
+    win_now: bool = False,
+    stubborn: Any = (),
 ) -> dict[str, Any]:
     """Everything the page needs, as plain JSON-able data."""
     settings = scored.settings
@@ -137,6 +139,7 @@ def build_report_data(
         proposals = find_trades(
             scored, book, limit=limit, multi_team=True,
             exclude_positions=exclude_positions,
+            win_now=win_now, stubborn=stubborn,
         )
 
     ordered = sorted(scored.teams, key=lambda t: t.overall_rank)
@@ -158,6 +161,7 @@ def build_report_data(
             "generated": datetime.datetime.now().strftime("%d %b %Y"),
             "focus": focus_roster,
             "excluded": sorted({p.upper() for p in exclude_positions}),
+            "winNow": bool(win_now),
         },
         "league": {
             "name": league.name,
@@ -707,7 +711,8 @@ python3 -m src.cli report &lt;league_id&gt; --exclude-position QB</div>
     ? '<b>Sample league.</b> Real players and real DynastyProcess values; the managers are invented. Point the same command at a real league and this page regenerates from it.'
     : '<b>' + esc(L.name) + '</b> · generated ' + esc(D.meta.generated) + ' from the roster sheet and live DynastyProcess values.')
     + (mine ? ' Your team is <b>' + esc(mine.name) + '</b>.' : '')
-    + (ex.length ? ' <b>' + esc(ex.join(', ')) + '</b> is excluded from every trade at the commissioner\'s direction — this league does not pay for it.' : '');
+    + (ex.length ? ' <b>' + esc(ex.join(', ')) + '</b> is excluded from every trade at the commissioner\'s direction — this league does not pay for it.' : '')
+    + (D.meta.winNow ? ' Every manager here believes they can win, so no proposal asks anyone to accept a worse starting lineup.' : '');
 
   var tick = [
     ['teams', L.starters ? D.teams.length : 0],

@@ -450,3 +450,71 @@ class TestPitch:
             for i, side in enumerate(proposal.sides):
                 text = pitch(proposal, from_side=i)
                 assert openers[side.window] in text
+
+
+class TestWinNowLeague:
+    """A league where every manager believes they are contending.
+
+    The window still diagnoses the roster honestly -- an old team is still old.
+    What changes is acceptance: nobody takes a worse lineup to get there.
+    """
+
+    def test_blend_moves_every_window_toward_the_contender(self):
+        from src.matchmaker import win_now_weights
+
+        for window in (TOP_HEAVY, RETOOLER, STUCK, REBUILD):
+            base, blended = WINDOW_WEIGHTS[window], win_now_weights(window)
+            assert blended["lineup"] > base["lineup"], window
+            assert blended["capital"] < base["capital"], window
+
+    def test_the_contender_profile_is_its_own_fixed_point(self):
+        from src.matchmaker import win_now_weights
+
+        assert win_now_weights(CONTENDER) == pytest.approx(WINDOW_WEIGHTS[CONTENDER])
+
+    def test_a_worse_lineup_is_refused_however_good_the_return(self, scratch_scored):
+        team = next(iter(scratch_scored.teams))
+        team.window = REBUILD
+        side = Side(
+            team=team,
+            sends=[real_asset("star", 6000, position="RB", age=31.0)],
+            receives=[asset("2028 1st", 99999, position="PICK", is_pick=True)],
+        )
+        weights = WINDOW_WEIGHTS[REBUILD]
+        score_side(side, scratch_scored.settings.starter_slots, weights)
+        assert side.gain > 0, "a rebuilder would normally love this"
+        assert side_accepts(side, weights) is True
+        assert side_accepts(side, weights, win_now=True) is False
+
+    def test_a_stubborn_manager_will_not_lose_the_value_exchange(self, scratch_scored):
+        team = next(iter(scratch_scored.teams))
+        side = Side(
+            team=team,
+            sends=[real_asset("out", 5000, position="WR", age=24.0)],
+            receives=[real_asset("in", 4000, position="RB", age=24.0)],
+        )
+        weights = WINDOW_WEIGHTS[team.window]
+        score_side(side, scratch_scored.settings.starter_slots, weights)
+        assert side.market_delta < 0
+        assert side_accepts(side, weights, stubborn=True) is False
+
+    def test_every_side_of_every_win_now_proposal_gains_lineup(self, scored, league_book):
+        proposals = find_trades(scored, league_book, limit=20, win_now=True)
+        assert proposals
+        for proposal in proposals:
+            for side in proposal.sides:
+                assert side.lineup_gain > 0
+
+
+class TestPairingCap:
+    def test_one_matchup_cannot_take_over_the_list(self, scored, league_book):
+        """The multiplicative penalties lose their grip when few pairs clear."""
+        from src.matchmaker import MAX_PER_PAIR, _pair_key
+
+        for kwargs in ({}, {"win_now": True}):
+            counts = {}
+            for proposal in find_trades(scored, league_book, limit=20, **kwargs):
+                key = _pair_key(proposal)
+                counts[key] = counts.get(key, 0) + 1
+            assert counts, kwargs
+            assert max(counts.values()) <= MAX_PER_PAIR, kwargs
